@@ -1,0 +1,487 @@
+================================================================================
+DOCUMENTAZIONE PROGETTO NULL - FRONTEND FLUTTER
+================================================================================
+
+Data: 2024
+Versione: 1.0.0
+Framework: Flutter (Cupertino/iOS Style)
+Linguaggio: Dart 3.9.2+
+
+================================================================================
+1. PANORAMICA GENERALE
+================================================================================
+
+NULL è un'applicazione mobile Flutter per la gestione di smart locker modulari
+e connessi nella città di Trento. L'app permette agli utenti di:
+- Visualizzare i lockers disponibili su una mappa interattiva
+- Cercare e filtrare lockers per tipologia
+- Visualizzare dettagli e disponibilità delle celle
+- Gestire preferenze e impostazioni (tema dark/light)
+
+L'applicazione è sviluppata seguendo i principi di Clean Architecture con
+separazione tra domain, data e presentation layers.
+
+================================================================================
+2. ARCHITETTURA DEL PROGETTO
+================================================================================
+
+2.1 STRUTTURA DELLE CARTELLE
+
+lib/
+├── main.dart                          # Entry point dell'applicazione
+├── core/                              # Componenti core riutilizzabili
+│   ├── config/
+│   │   └── map_config.dart           # Configurazione mappa (tile providers)
+│   ├── di/
+│   │   └── app_dependencies.dart     # Dependency Injection
+│   ├── styles/
+│   │   ├── app_colors.dart           # Sistema colori (light/dark)
+│   │   └── app_text_styles.dart      # Stili testo
+│   └── theme/
+│       └── theme_manager.dart        # Gestione tema dark/light
+└── features/                          # Moduli funzionali
+    ├── home/
+    │   └── presentation/
+    │       └── pages/
+    │           └── home_page.dart    # Schermata principale con mappa
+    ├── lockers/
+    │   ├── data/
+    │   │   ├── mock_lockers.dart     # Dati mock per testing
+    │   │   └── repositories/
+    │   │       ├── locker_repository_mock.dart    # Repository mock
+    │   │       └── locker_repository_impl.dart    # Repository reale (stub)
+    │   └── domain/
+    │       ├── models/
+    │       │   ├── locker.dart       # Modello Locker
+    │       │   └── locker_type.dart  # Enum tipologie locker
+    │       └── repositories/
+    │           └── locker_repository.dart  # Interfaccia repository
+    ├── notifications/
+    │   └── presentation/
+    │       └── pages/
+    │           └── notifications_page.dart
+    └── settings/
+        └── presentation/
+            └── pages/
+                └── settings_page.dart
+
+2.2 PATTERN ARCHITETTURALI
+
+- Clean Architecture: separazione tra domain, data e presentation
+- Repository Pattern: astrazione per l'accesso ai dati
+- Dependency Injection: gestione centralizzata delle dipendenze
+- State Management: StatefulWidget con ChangeNotifier per il tema
+
+================================================================================
+3. FUNZIONALITÀ IMPLEMENTATE
+================================================================================
+
+3.1 SCHERMATA HOME (HomePage)
+
+La schermata principale contiene:
+
+a) MAPPA INTERATTIVA
+   - Libreria: flutter_map 8.2.2
+   - Tile providers:
+     * Light mode: CartoDB Positron (minimal e pulito)
+     * Dark mode: CartoDB Dark Matter (tema scuro minimal)
+   - Centro iniziale: Trento (46.0700, 11.1200)
+   - Zoom iniziale: 13
+   - Marker interattivi per ogni locker
+   - Cambio automatico tema mappa in base al tema app
+
+b) HEADER
+   - Logo "NULL" a sinistra
+   - Barra di ricerca centrale con:
+     * Ricerca testuale in tempo reale
+     * Pulsante dropdown per mostrare/nascondere filtri categoria
+     * Filtri categoria integrati (apparsi quando si clicca)
+   - Icona profilo utente a destra
+
+c) FILTRI CATEGORIA
+   - Integrati nella barra di ricerca
+   - 5 tipologie disponibili:
+     * Sportivi (icona: sportscourt_fill)
+     * Personali (icona: bag_fill)
+     * Pet-Friendly (icona: heart_fill)
+     * Commerciali (icona: cart_fill)
+     * Cicloturistici (icona: location_fill)
+   - Selezione multipla
+   - Chiamate asincrone al repository quando si filtrano
+
+d) MARKER LOCKERS
+   - Marker circolari colorati sulla mappa
+   - Icona specifica per ogni tipologia
+   - Bordo e ombra per visibilità
+   - Tap per aprire card dettagli
+
+e) CARD DETTAGLI LOCKER
+   - Appare quando si tocca un marker
+   - Mostra:
+     * Nome locker
+     * Tipologia
+     * Descrizione (se presente)
+     * Disponibilità celle (es: 8/12)
+   - Pulsante "Apri" per dettagli completi
+   - Chiusura con X o tap sulla mappa
+
+f) STATI E GESTIONE ERRORI
+   - Loading state con indicatore
+   - Error state con messaggio e pulsante "Riprova"
+   - Gestione asincrona delle chiamate API
+
+3.2 SCHERMATA NOTIFICHE (NotificationsPage)
+
+- Pagina vuota con stato placeholder
+- Design coerente con tema app
+- Supporto dark/light mode
+
+3.3 SCHERMATA IMPOSTAZIONI (SettingsPage)
+
+- Sezione "ASPETTO":
+  * Toggle modalità scura/chiara
+  * Cambio tema in tempo reale
+
+- Sezione "SUPPORTO":
+  * Help: dialog con informazioni app
+  * Informazioni: versione app (1.0.0)
+
+3.4 FOOTER NAVIGATION
+
+- Sempre visibile in tutte le pagine
+- 3 tab:
+  * Notifiche (icona: bell)
+  * Home (icona: home)
+  * Impostazioni (icona: settings)
+- Stile iOS "floating" con blur effect
+- Colori dinamici in base al tema
+
+================================================================================
+4. SISTEMA DI TEMA DARK/LIGHT
+================================================================================
+
+4.1 THEME MANAGER
+
+Classe: ThemeManager (ChangeNotifier)
+- Gestisce lo stato del tema (dark/light)
+- Notifica i widget quando il tema cambia
+- Metodi:
+  * toggleTheme(): alterna tra dark e light
+  * setTheme(bool): imposta tema specifico
+
+4.2 SISTEMA COLORI (AppColors)
+
+Tutti i colori sono gestiti centralmente e cambiano automaticamente:
+
+Light Mode:
+- Primary: #007AFF (iOS Blue)
+- Background: Bianco
+- Surface: systemGrey6
+- Text: Nero
+- Text Secondary: secondaryLabel
+- Card: Bianco
+
+Dark Mode:
+- Primary: #0A84FF (iOS Blue più chiaro)
+- Background: #000000 (Nero)
+- Surface: #1C1C1E (Grigio scuro)
+- Text: Bianco
+- Text Secondary: #AEAEB2 (Grigio chiaro leggibile)
+- Card: #2C2C2E (Grigio scuro)
+
+Colori aggiuntivi:
+- overlayLoading/overlayError: per overlay
+- shadowColor: per ombre
+- iconBackground: per container icone
+- borderSecondary: per bordi secondari
+
+IMPORTANTE: Tutti i colori sono SOLIDI, nessuna opacità (.withOpacity)
+è utilizzata nell'applicazione.
+
+4.3 STILI TESTO (AppTextStyles)
+
+- logo(): stile per logo NULL
+- title(): titoli principali
+- body(): testo corpo
+- bodySecondary(): testo secondario
+- subtitle(): sottotitoli
+
+Tutti gli stili accettano il parametro isDark per adattarsi al tema.
+
+================================================================================
+5. GESTIONE DATI E REPOSITORY PATTERN
+================================================================================
+
+5.1 INTERFACCIA REPOSITORY
+
+LockerRepository definisce i contratti:
+- getLockers(): ottiene tutti i lockers
+- getLockersByType(LockerType): filtra per tipologia
+- getLockerById(String): ottiene locker specifico
+- searchLockers(String): ricerca testuale
+
+5.2 IMPLEMENTAZIONE MOCK
+
+LockerRepositoryMock:
+- Simula chiamate API con delay (500ms)
+- Usa dati mock da mock_lockers.dart
+- 8 lockers di esempio distribuiti a Trento
+- Gestisce tutti i tipi di query
+
+5.3 IMPLEMENTAZIONE REALE
+
+LockerRepositoryImpl:
+- Stub per implementazione futura
+- Lancia UnimplementedError
+- Da implementare quando backend sarà pronto
+
+5.4 DEPENDENCY INJECTION
+
+AppDependencies:
+- Flag useMockData per switchare tra mock e reale
+- Attualmente: useMockData = true
+- Quando backend pronto: cambiare a false e implementare LockerRepositoryImpl
+
+5.5 MODELLI DATI
+
+Locker:
+- id: String
+- name: String
+- position: LatLng
+- type: LockerType
+- totalCells: int
+- availableCells: int
+- isActive: bool
+- description: String? (opzionale)
+
+LockerType (enum):
+- sportivi
+- personali
+- petFriendly
+- commerciali
+- cicloturistici
+
+Ogni tipo ha:
+- label: String (nome visualizzato)
+- icon: IconData (icona Cupertino)
+
+================================================================================
+6. DIPENDENZE E LIBRERIE
+================================================================================
+
+6.1 DIPENDENZE PRINCIPALI
+
+- flutter_map: ^8.2.2
+  * Mappa interattiva open source
+  * Supporto tile providers multipli
+  * Marker e layer personalizzabili
+
+- latlong2: ^0.9.0
+  * Gestione coordinate geografiche
+  * Calcoli distanze e conversioni
+
+- location: ^8.0.1
+  * Accesso geolocalizzazione dispositivo
+  * (Aggiunta per funzionalità futura)
+
+- cupertino_icons: ^1.0.8
+  * Icone iOS style
+
+6.2 DEV DEPENDENCIES
+
+- flutter_lints: ^6.0.0
+  * Linter per best practices Dart/Flutter
+
+================================================================================
+7. DESIGN E UX
+================================================================================
+
+7.1 STILE iOS (Cupertino)
+
+- Tutti i widget usano Cupertino* widgets
+- Design minimal e pulito
+- Animazioni fluide
+- Glassmorphism con BackdropFilter
+- Border radius arrotondati (18px, 24px)
+
+7.2 COMPONENTI UI
+
+- Barra ricerca: glassmorphism con blur
+- Footer: floating pill con blur
+- Card: glassmorphism con blur
+- Marker: circolari con ombra
+- Pulsanti: stile iOS con border radius
+
+7.3 RESPONSIVE E ACCESSIBILITÀ
+
+- SafeArea per gestire notch/status bar
+- Padding appropriati per tutti i dispositivi
+- Colori con contrasto adeguato
+- Testi leggibili in entrambi i temi
+
+================================================================================
+8. FUNZIONALITÀ FUTURE DA IMPLEMENTARE
+================================================================================
+
+8.1 AUTENTICAZIONE
+- Login con SPID/CIE
+- Accesso anonimo
+- Gestione sessione utente
+
+8.2 DETTAGLIO LOCKER
+- Visualizzazione celle disponibili
+- Sblocco cella tramite app
+- Verifica peso/foto per restituzione
+
+8.3 GEOLOCALIZZAZIONE
+- Pulsante "Mia posizione" (come Google Maps)
+- Zoom automatico sulla posizione utente
+- Richiesta permessi geolocalizzazione
+
+8.4 ALTRE FUNZIONALITÀ
+- Donazioni attrezzature
+- Segnalazioni guasti
+- Storico utilizzo
+- Notifiche push
+
+================================================================================
+9. CONFIGURAZIONE BACKEND
+================================================================================
+
+9.1 SWITCHARE AL BACKEND REALE
+
+Quando il backend sarà pronto:
+
+1. Aprire lib/core/di/app_dependencies.dart
+2. Cambiare useMockData = false
+3. Implementare LockerRepositoryImpl con:
+   - Chiamate HTTP reali
+   - Parsing JSON
+   - Gestione errori
+   - Autenticazione (se necessaria)
+4. Aggiungere dipendenza http in pubspec.yaml
+5. Configurare URL base backend
+
+Esempio implementazione:
+```dart
+class LockerRepositoryImpl implements LockerRepository {
+  final String baseUrl = 'https://api.null.app';
+  final http.Client _client;
+  
+  @override
+  Future<List<Locker>> getLockers() async {
+    final response = await _client.get(
+      Uri.parse('$baseUrl/api/lockers'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return (data['lockers'] as List)
+          .map((json) => Locker.fromJson(json))
+          .toList();
+    } else {
+      throw Exception('Failed to load lockers');
+    }
+  }
+}
+```
+
+================================================================================
+10. NOTE TECNICHE
+================================================================================
+
+10.1 GESTIONE STATO
+
+- StatefulWidget per stato locale
+- ChangeNotifier per tema globale
+- ListenableBuilder per reattività tema
+
+10.2 PERFORMANCE
+
+- Lazy loading dei marker
+- Filtri applicati lato client quando possibile
+- Delay simulato nelle chiamate mock (500ms)
+
+10.3 ERROR HANDLING
+
+- Try-catch in tutte le chiamate async
+- Messaggi errore user-friendly
+- Pulsante retry per recupero errori
+
+10.4 BEST PRACTICES
+
+- Tutti i colori centralizzati in AppColors
+- Tutti gli stili testo in AppTextStyles
+- Nessuna opacità utilizzata (colori solidi)
+- Separazione concerns (domain/data/presentation)
+- Repository pattern per testabilità
+
+================================================================================
+11. STRUTTURA FILE CHIAVE
+================================================================================
+
+main.dart
+- Entry point
+- Inizializzazione ThemeManager
+- Configurazione CupertinoApp
+
+home_page.dart
+- Logica principale mappa
+- Gestione stato lockers
+- UI completa schermata home
+
+app_colors.dart
+- Sistema colori completo
+- Supporto light/dark
+- Colori solidi (no opacità)
+
+theme_manager.dart
+- Gestione tema globale
+- ChangeNotifier pattern
+
+app_dependencies.dart
+- Dependency Injection
+- Switch mock/reale
+
+map_config.dart
+- Configurazione tile providers
+- Coordinate Trento
+- Selezione tema mappa
+
+locker_repository.dart
+- Interfaccia repository
+- Contratti API
+
+locker_repository_mock.dart
+- Implementazione mock
+- Simulazione delay API
+
+================================================================================
+12. CONCLUSIONI
+================================================================================
+
+L'applicazione NULL frontend è stata sviluppata seguendo best practices
+Flutter e Clean Architecture. Il codice è modulare, testabile e pronto per
+l'integrazione con il backend quando sarà disponibile.
+
+Caratteristiche principali:
+✓ Design iOS minimal e moderno
+✓ Tema dark/light completo
+✓ Mappa interattiva con marker
+✓ Sistema filtri e ricerca
+✓ Repository pattern per testabilità
+✓ Gestione errori robusta
+✓ Architettura scalabile
+
+Prossimi passi:
+- Implementare autenticazione
+- Aggiungere geolocalizzazione
+- Collegare backend reale
+- Implementare dettaglio locker
+- Aggiungere funzionalità avanzate
+
+================================================================================
+FINE DOCUMENTAZIONE
+================================================================================
+
