@@ -1,23 +1,37 @@
 import 'package:flutter/cupertino.dart';
+import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/core/styles/app_colors.dart';
 
 class LoginPage extends StatelessWidget {
   final Function(bool) onLoginSuccess;
+  final ThemeManager themeManager;
 
   const LoginPage({
     super.key,
     required this.onLoginSuccess,
+    required this.themeManager,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
+    return ListenableBuilder(
+      listenable: themeManager,
+      builder: (context, _) {
+        final isDark = themeManager.isDarkMode;
 
     return CupertinoPageScaffold(
       backgroundColor: AppColors.background(isDark),
       navigationBar: CupertinoNavigationBar(
-        middle: const Text('Accedi'),
+        backgroundColor: AppColors.surface(isDark),
+        middle: Text(
+          'Accedi',
+          style: TextStyle(
+            color: AppColors.text(isDark),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
         leading: CupertinoNavigationBarBackButton(
+          color: AppColors.primary(isDark),
           onPressed: () {
             Navigator.of(context).pop();
           },
@@ -139,6 +153,8 @@ class LoginPage extends StatelessWidget {
           ],
         ),
       ),
+    );
+      },
     );
   }
 }

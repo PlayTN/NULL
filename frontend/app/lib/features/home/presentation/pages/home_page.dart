@@ -21,6 +21,7 @@ import 'package:app/features/profile/presentation/pages/history_page.dart';
 import 'package:app/features/profile/presentation/pages/active_reservations_page.dart';
 import 'package:app/features/profile/presentation/pages/donate_page.dart';
 import 'package:app/features/profile/presentation/pages/help_page.dart';
+import 'package:app/core/utils/responsive_utils.dart';
 
 class HomePage extends StatefulWidget {
   final ThemeManager themeManager;
@@ -106,53 +107,60 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
   
   Future<void> _requestLocationPermissionAndZoom() async {
-    bool serviceEnabled;
-    PermissionStatus permissionGranted;
+    try {
+      bool serviceEnabled;
+      PermissionStatus permissionGranted;
 
-    // Controlla se il servizio di localizzazione è abilitato
-    serviceEnabled = await _location.serviceEnabled();
-    if (!serviceEnabled) {
-      serviceEnabled = await _location.requestService();
+      // Controlla se il servizio di localizzazione è abilitato
+      serviceEnabled = await _location.serviceEnabled();
       if (!serviceEnabled) {
-        return;
+        serviceEnabled = await _location.requestService();
+        if (!serviceEnabled) {
+          return;
+        }
       }
-    }
 
-    // Controlla i permessi
-    permissionGranted = await _location.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await _location.requestPermission();
-      if (permissionGranted != PermissionStatus.granted) {
-        return;
+      // Controlla i permessi
+      permissionGranted = await _location.hasPermission();
+      if (permissionGranted == PermissionStatus.denied) {
+        permissionGranted = await _location.requestPermission();
+        if (permissionGranted != PermissionStatus.granted) {
+          return;
+        }
       }
-    }
 
-    if (permissionGranted == PermissionStatus.granted) {
-      setState(() {
-        _locationPermissionGranted = true;
-      });
-      
-      // Ottieni la posizione e fai zoom automatico
-      await _zoomToUserLocation();
+      if (permissionGranted == PermissionStatus.granted) {
+        setState(() {
+          _locationPermissionGranted = true;
+        });
+        
+        // Ottieni la posizione e fai zoom automatico
+        await _zoomToUserLocation();
+      }
+    } catch (e) {
+      // Se il plugin location non è disponibile (es. su web o emulatore senza servizi),
+      // ignora l'errore e continua senza geolocalizzazione
+      debugPrint('Errore servizio location: $e');
+      // Mantieni la posizione di default (Trento)
     }
   }
   
   Future<void> _zoomToUserLocation() async {
-    // Se abbiamo già la posizione salvata, usa quella (più veloce)
-    if (_userLocation != null) {
-      await _animateToLocation(_userLocation!, 15.0);
-      return;
-    }
-
-    // Altrimenti richiedi i permessi se necessario
-    if (!_locationPermissionGranted) {
-      await _requestLocationPermissionAndZoom();
-      if (!_locationPermissionGranted) {
+    try {
+      // Se abbiamo già la posizione salvata, usa quella (più veloce)
+      if (_userLocation != null) {
+        await _animateToLocation(_userLocation!, MapConfig.userLocationZoom);
         return;
       }
-    }
 
-    try {
+      // Altrimenti richiedi i permessi se necessario
+      if (!_locationPermissionGranted) {
+        await _requestLocationPermissionAndZoom();
+        if (!_locationPermissionGranted) {
+          return;
+        }
+      }
+
       final locationData = await _location.getLocation();
       if (locationData.latitude != null && locationData.longitude != null) {
         final userLatLng = LatLng(
@@ -166,13 +174,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         });
         
         // Zoom con animazione smooth
-        await _animateToLocation(userLatLng, 15.0);
+        await _animateToLocation(userLatLng, MapConfig.userLocationZoom);
       }
     } catch (e) {
-      // Se c'è un errore, mantieni la posizione di default (Trento)
+      // Se c'è un errore (plugin non disponibile, permessi negati, ecc.),
+      // mantieni la posizione di default (Trento)
+      debugPrint('Errore ottenimento posizione: $e');
       await _animateToLocation(
         const LatLng(MapConfig.centerLat, MapConfig.centerLng),
-        13.0,
+        MapConfig.defaultZoom,
       );
     }
   }
@@ -295,7 +305,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   MapConfig.centerLat,
                   MapConfig.centerLng,
                 ),
-                initialZoom: 13,
+                initialZoom: MapConfig.defaultZoom,
+                minZoom: MapConfig.minZoom,
+                maxZoom: MapConfig.maxZoom,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
                 onTap: (_, __) {
                   // Chiudi la tastiera quando si tocca la mappa
                   FocusScope.of(context).unfocus();
@@ -309,7 +324,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 TileLayer(
                   urlTemplate: MapConfig.getTileUrlTemplate(isDark),
                   subdomains: MapConfig.tileSubdomains,
-                  userAgentPackageName: 'null.app/1.0',
+                  maxZoom: MapConfig.maxZoom,
+                  minZoom: MapConfig.minZoom,
+                  tileProvider: NetworkTileProvider(),
+                  errorTileCallback: (tile, error, stackTrace) {
+                    // Gestisce errori di caricamento tile (es. senza internet)
+                    // Log dell'errore per debug (solo in modalità debug)
+                    debugPrint('Errore caricamento tile: $error');
+                  },
                 ),
                 // Marker dei lockers
                 if (!_isLoading && _errorMessage == null)
@@ -515,9 +537,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           minSize: 0,
                           onPressed: () {
                             Navigator.of(context).push(
-                            CupertinoPageRoute(
-                              builder: (context) => LoginPage(
-                                onLoginSuccess: (success) {
+                              CupertinoPageRoute(
+                                builder: (context) => LoginPage(
+                                  themeManager: widget.themeManager,
+                                  onLoginSuccess: (success) {
                                   setState(() {
                                     _isAuthenticated = success;
                                   });
@@ -951,19 +974,31 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               ),
             ),
           if (_showProfilePopup)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 12 + 56 + 10, // Sotto l'header
-              right: 16, // Allineato con il pulsante profilo
-                child: ProfilePopup(
-                  isAuthenticated: _isAuthenticated,
-                  userName: _userName,
-                  onLoginTap: () {
+            Builder(
+              builder: (context) {
+                final safeAreaTop = MediaQuery.of(context).padding.top;
+                final screenHeight = MediaQuery.of(context).size.height;
+                // Calcola dinamicamente l'altezza dell'header
+                final headerContentHeight = (screenHeight * 0.08).clamp(56.0, 80.0);
+                final headerPaddingTop = 12.0;
+                final headerPaddingBottom = 10.0;
+                final spacing = 10.0;
+                
+                return Positioned(
+                  top: safeAreaTop + headerPaddingTop + headerContentHeight + headerPaddingBottom + spacing,
+                  right: 16, // Allineato con il pulsante profilo
+                  child: ProfilePopup(
+                    themeManager: widget.themeManager,
+                    isAuthenticated: _isAuthenticated,
+                    userName: _userName,
+                    onLoginTap: () {
                     setState(() {
                       _showProfilePopup = false;
                     });
                     Navigator.of(context).push(
                       CupertinoPageRoute(
                         builder: (context) => LoginPage(
+                          themeManager: widget.themeManager,
                           onLoginSuccess: (success) {
                             setState(() {
                               _isAuthenticated = success;
@@ -1035,7 +1070,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     );
                   },
                 ),
-              ),
+              );
+              },
+            ),
           ],
       ),
     );
@@ -1084,7 +1121,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                             if (index == 1) {
                               _animateToLocation(
                                 const LatLng(MapConfig.centerLat, MapConfig.centerLng),
-                                13.0,
+                                MapConfig.defaultZoom,
                               );
                             }
                           },

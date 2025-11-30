@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/core/styles/app_colors.dart';
 import 'package:app/core/styles/app_text_styles.dart';
 
@@ -14,10 +15,12 @@ class ProfilePopup extends StatelessWidget {
   final VoidCallback? onDonateTap;
   final String? userName;
   final String? userEmail;
+  final ThemeManager themeManager;
 
   const ProfilePopup({
     super.key,
     required this.isAuthenticated,
+    required this.themeManager,
     this.onLoginTap,
     this.onLogoutTap,
     this.onHistoryTap,
@@ -30,33 +33,38 @@ class ProfilePopup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = MediaQuery.of(context).platformBrightness == Brightness.dark;
+    return ListenableBuilder(
+      listenable: themeManager,
+      builder: (context, _) {
+        final isDark = themeManager.isDarkMode;
 
-    return GestureDetector(
-      onTap: () {
-        // Previene la chiusura quando si clicca dentro il popup
-      },
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            width: 260,
-            constraints: const BoxConstraints(maxHeight: 400),
-            decoration: BoxDecoration(
-              color: AppColors.surface(isDark).withOpacity(0.95),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: AppColors.borderColor(isDark).withOpacity(0.2),
-                width: 1,
+        return GestureDetector(
+          onTap: () {
+            // Previene la chiusura quando si clicca dentro il popup
+          },
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+              child: Container(
+                width: 260,
+                constraints: const BoxConstraints(maxHeight: 400),
+                decoration: BoxDecoration(
+                  color: AppColors.surface(isDark).withOpacity(0.95),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: AppColors.borderColor(isDark).withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: isAuthenticated
+                    ? _buildAuthenticatedView(context, isDark)
+                    : _buildUnauthenticatedView(context, isDark),
               ),
             ),
-            child: isAuthenticated
-                ? _buildAuthenticatedView(context, isDark)
-                : _buildUnauthenticatedView(context, isDark),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
