@@ -165,6 +165,8 @@ class _HomePageState extends State<HomePage> {
                 ),
                 initialZoom: 13,
                 onTap: (_, __) {
+                  // Chiudi la tastiera quando si tocca la mappa
+                  FocusScope.of(context).unfocus();
                   setState(() {
                     _selectedLocker = null;
                     _showCategoryFilters = false;
@@ -265,23 +267,28 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           // Contenuto sopra la mappa
-          Column(
-            children: [
+          GestureDetector(
+            onTap: () {
+              // Chiudi la tastiera quando si tocca fuori dalla barra di ricerca
+              FocusScope.of(context).unfocus();
+            },
+            child: Column(
+              children: [
               // Header: logo e search+profilo sulla stessa riga
               SafeArea(
                 bottom: false,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+                  padding: const EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 12,
+                    bottom: 10,
                   ),
                   child: Column(
                     children: [
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          Text('NULL', style: AppTextStyles.logo(isDark)),
-                          const SizedBox(width: 12),
                           Expanded(
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(18),
@@ -299,18 +306,27 @@ class _HomePageState extends State<HomePage> {
                                       Padding(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 12,
-                                          vertical: 10,
+                                          vertical: 12,
                                         ),
                                         child: Row(
                                           crossAxisAlignment:
                                               CrossAxisAlignment.center,
                                           children: [
+                                            // Logo (quadrato grigio)
+                                            Container(
+                                              width: 32,
+                                              height: 32,
+                                              decoration: BoxDecoration(
+                                                color: AppColors.searchBackground(isDark),
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
                                             // Barra di ricerca
                                             Expanded(
                                               child: CupertinoSearchTextField(
                                                 placeholder: 'Cerca lockers...',
-                                                backgroundColor: AppColors
-                                                    .searchBackground(isDark),
+                                                backgroundColor: CupertinoColors.transparent,
                                                 padding: const EdgeInsets
                                                     .symmetric(
                                                   horizontal: 8,
@@ -337,41 +353,6 @@ class _HomePageState extends State<HomePage> {
                                                     _showCategoryFilters = true;
                                                   });
                                                 },
-                                              ),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            // Pulsante per mostrare/nascondere filtri
-                                            CupertinoButton(
-                                              padding: EdgeInsets.zero,
-                                              minSize: 0,
-                                              onPressed: () {
-                                                setState(() {
-                                                  _showCategoryFilters =
-                                                      !_showCategoryFilters;
-                                                });
-                                              },
-                                              child: Container(
-                                                padding: const EdgeInsets.all(8),
-                                                decoration: BoxDecoration(
-                                                  color: _showCategoryFilters
-                                                      ? AppColors.primary(isDark)
-                                                      : AppColors.surface(
-                                                          isDark),
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                ),
-                                                child: Icon(
-                                                  _showCategoryFilters
-                                                      ? CupertinoIcons
-                                                          .chevron_up
-                                                      : CupertinoIcons
-                                                          .chevron_down,
-                                                  size: 18,
-                                                  color: _showCategoryFilters
-                                                      ? CupertinoColors.white
-                                                      : AppColors.textSecondary(
-                                                          isDark),
-                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: 12),
@@ -663,6 +644,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
             ],
+            ),
           ),
         ],
       ),
@@ -698,7 +680,7 @@ class _HomePageState extends State<HomePage> {
                       filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                       child: DecoratedBox(
                         decoration: BoxDecoration(
-                          color: AppColors.bottomBarBackground(isDark),
+                          color: CupertinoColors.transparent,
                           borderRadius: BorderRadius.circular(24),
                         ),
                         child: CupertinoTabBar(

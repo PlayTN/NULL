@@ -3,18 +3,36 @@ import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/features/home/presentation/pages/home_page.dart';
 
 void main() {
-  runApp(const MyApp());
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  // Leggi il tema di sistema PRIMA di creare l'app
+  final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
+  final isSystemDark = brightness == Brightness.dark;
+  
+  runApp(MyApp(initialDarkMode: isSystemDark));
 }
 
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  final bool initialDarkMode;
+  
+  const MyApp({
+    super.key,
+    required this.initialDarkMode,
+  });
 
   @override
   State<MyApp> createState() => _MyAppState();
 }
 
 class _MyAppState extends State<MyApp> {
-  final ThemeManager _themeManager = ThemeManager();
+  late final ThemeManager _themeManager;
+
+  @override
+  void initState() {
+    super.initState();
+    // Passa il tema di sistema al ThemeManager
+    _themeManager = ThemeManager(initialDarkMode: widget.initialDarkMode);
+  }
 
   @override
   void dispose() {
