@@ -1,61 +1,61 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/core/styles/app_colors.dart';
 import 'package:app/core/styles/app_text_styles.dart';
-import 'package:app/core/notifications/notification_service.dart';
 import 'package:app/core/di/app_dependencies.dart';
 import 'package:app/features/cells/domain/models/active_cell.dart';
 import 'package:app/features/cells/data/repositories/cell_repository_mock.dart';
-import 'package:app/features/lockers/domain/models/locker_cell.dart';
 import 'package:app/features/reports/presentation/pages/report_issue_page.dart';
 
-/// Pagina per aprire una cella tramite Bluetooth
+/// Pagina per restituire un oggetto preso in prestito
 /// 
-/// **Flusso per prestito:**
-/// 1. Ricerca del locker via Bluetooth
-/// 2. Se Bluetooth non attivo, richiesta attivazione con refresh automatico
-/// 3. Una volta connesso, pulsante per aprire la cella
-/// 4. Attesa chiusura sportello (simulata con 3 secondi)
-/// 5. Schermata di conferma chiusura
-/// 
-/// **Flusso per deposito (quando onVerificationComplete è presente):**
-/// 1. Ricerca del locker via Bluetooth
-/// 2. Se Bluetooth non attivo, richiesta attivazione con refresh automatico
-/// 3. Una volta connesso, chiama onVerificationComplete (naviga al pagamento)
+/// **Flusso:**
+/// 1. Richiesta foto dell'oggetto per verifica condizioni
+/// 2. Anteprima foto e conferma
+/// 3. Ricerca del locker via Bluetooth
+/// 4. Se Bluetooth non attivo, richiesta attivazione con refresh automatico
+/// 5. Una volta connesso, pulsante per aprire la cella
+/// 6. L'utente mette l'oggetto dentro
+/// 7. Attesa chiusura sportello (simulata con 3 secondi)
+/// 8. Schermata di conferma chiusura e rimozione dalla lista attive
 /// 
 /// **TODO quando il backend sarà pronto:**
+/// - Upload foto al backend (POST /api/v1/cells/return/photo)
 /// - UUID reale del locker dal backend
 /// - Comando Bluetooth reale per aprire la cella
 /// - Rilevamento chiusura tramite sensore/signale Bluetooth
-class OpenCellPage extends StatefulWidget {
+/// - Notifica backend della restituzione (POST /api/v1/cells/return)
+class ReturnCellPage extends StatefulWidget {
   final ThemeManager themeManager;
-  final LockerCell cell;
-  final String lockerName;
-  final String lockerId;
-  final VoidCallback? onVerificationComplete; // Se presente, chiamato dopo verifica Bluetooth (per deposito)
+  final ActiveCell cell;
 
-  const OpenCellPage({
+  const ReturnCellPage({
     super.key,
     required this.themeManager,
     required this.cell,
-    required this.lockerName,
-    required this.lockerId,
-    this.onVerificationComplete,
   });
 
   @override
-  State<OpenCellPage> createState() => _OpenCellPageState();
+  State<ReturnCellPage> createState() => _ReturnCellPageState();
 }
 
-class _OpenCellPageState extends State<OpenCellPage> {
+class _ReturnCellPageState extends State<ReturnCellPage> {
+  // Stati foto
+  File? _photoFile;
+  bool _photoTaken = false;
+  bool _photoConfirmed = false;
+  String? _photoBase64; // Base64 della foto per il backend
+  
   // Stati Bluetooth
   bool _isScanning = false;
   bool _isBluetoothEnabled = false;
   bool _lockerFound = false;
   bool _lockerConnected = false;
-  bool _waitingForBluetoothActivation = false; // Flag per evitare pulsante "Riprova" durante attesa
+  bool _waitingForBluetoothActivation = false;
   String _statusMessage = 'Preparazione...';
   
   // Stati apertura/chiusura cella
@@ -65,11 +65,11 @@ class _OpenCellPageState extends State<OpenCellPage> {
   StreamSubscription<BluetoothAdapterState>? _bluetoothStateSubscription;
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
   Timer? _doorCloseTimer;
+  final ImagePicker _imagePicker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    _checkBluetoothAndStartScan();
   }
 
   @override
@@ -81,10 +81,69 @@ class _OpenCellPageState extends State<OpenCellPage> {
     super.dispose();
   }
 
+  /// Richiede all'utente di scattare una foto
+  Future<void> _requestPhoto() async {
+    try {
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 85,
+        maxWidth: 1920,
+      );
+      
+      if (photo != null) {
+        setState(() {
+          _photoFile = File(photo.path);
+          _photoTaken = true;
+          _photoConfirmed = false;
+        });
+        
+        // TODO BACKEND: Converti in base64 per inviare al backend
+        // final bytes = await photo.readAsBytes();
+        // _photoBase64 = base64Encode(bytes);
+      }
+    } catch (e) {
+      debugPrint('⚠️ [PHOTO] Errore nella selezione foto: $e');
+      showCupertinoDialog(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: const Text('Errore'),
+          content: Text('Impossibile scattare la foto: $e'),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              child: const Text('OK'),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ],
+        ),
+      );
+    }
+  }
+
+  /// Conferma la foto e procede con la ricerca Bluetooth
+  void _confirmPhoto() {
+    setState(() {
+      _photoConfirmed = true;
+    });
+    
+    // Avvia la ricerca Bluetooth dopo la conferma
+    Future.delayed(const Duration(milliseconds: 500), () {
+      _checkBluetoothAndStartScan();
+    });
+  }
+
+  /// Scatta una nuova foto
+  void _retakePhoto() {
+    setState(() {
+      _photoTaken = false;
+      _photoFile = null;
+      _photoConfirmed = false;
+    });
+  }
+
   /// Controlla lo stato Bluetooth e avvia la ricerca
   Future<void> _checkBluetoothAndStartScan() async {
     try {
-      // Verifica lo stato corrente
       final adapterState = await FlutterBluePlus.adapterState.first;
       
       if (adapterState != BluetoothAdapterState.on) {
@@ -94,162 +153,79 @@ class _OpenCellPageState extends State<OpenCellPage> {
           _statusMessage = 'Attivazione Bluetooth richiesta';
         });
         
-        // Imposta il listener PRIMA di richiedere l'attivazione
         _setupBluetoothListener();
         _requestEnableBluetooth();
         return;
       }
 
-      // Bluetooth è attivo, avvia la ricerca
       setState(() {
         _isBluetoothEnabled = true;
-        _statusMessage = 'Ricerca locker in corso...';
-        _isScanning = true;
+        _waitingForBluetoothActivation = false;
       });
-
-      // Imposta il listener per cambiamenti futuri
-      _setupBluetoothListener();
-
-      await _startScan();
+      
+      _startScan();
     } catch (e) {
+      debugPrint('⚠️ [BLUETOOTH] Errore: $e');
       setState(() {
         _statusMessage = 'Errore: $e';
-        _isScanning = false;
       });
     }
   }
 
   /// Imposta il listener per lo stato Bluetooth
   void _setupBluetoothListener() {
-    // Cancella listener precedente se esiste
     _bluetoothStateSubscription?.cancel();
-    
-    // Crea nuovo listener
     _bluetoothStateSubscription = FlutterBluePlus.adapterState.listen((state) {
-      if (!mounted) return;
-      
-      if (state == BluetoothAdapterState.on) {
-        // Bluetooth è attivo
-        if (!_isBluetoothEnabled) {
-          // Bluetooth appena attivato, refresh automatico
-          setState(() {
-            _isBluetoothEnabled = true;
-            _waitingForBluetoothActivation = false;
-            _statusMessage = 'Bluetooth attivato. Ricerca locker...';
-            _isScanning = true;
-          });
-          // Avvia la ricerca dopo un breve delay per assicurarsi che sia tutto pronto
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted && !_lockerFound) {
-              _startScan();
-            }
-          });
-        }
-      } else {
-        // Bluetooth non attivo
-        if (_isBluetoothEnabled) {
-          setState(() {
-            _isBluetoothEnabled = false;
-            _isScanning = false;
-            _waitingForBluetoothActivation = false;
-            _statusMessage = 'Bluetooth non attivo';
-          });
-        }
+      debugPrint('📡 [BLUETOOTH] Stato cambiato: $state');
+      if (state == BluetoothAdapterState.on && _waitingForBluetoothActivation) {
+        setState(() {
+          _waitingForBluetoothActivation = false;
+          _isBluetoothEnabled = true;
+        });
+        _startScan();
       }
     });
   }
 
-  /// Richiede l'attivazione del Bluetooth usando il popup di sistema
+  /// Richiede l'attivazione del Bluetooth
   Future<void> _requestEnableBluetooth() async {
     try {
-      // Usa il popup di sistema per attivare il Bluetooth
       await FlutterBluePlus.turnOn();
-      // Il listener rileverà l'attivazione e farà il refresh automatico
-      
-      // Verifica lo stato dopo un breve delay (in caso l'attivazione sia immediata)
-      Future.delayed(const Duration(milliseconds: 1000), () {
-        if (mounted) {
-          _checkBluetoothState();
-        }
-      });
     } catch (e) {
-      // Se non può attivare direttamente, il listener comunque rileverà quando l'utente lo attiva manualmente
-      // Non mostriamo dialog personalizzati, solo il popup di sistema
+      debugPrint('⚠️ [BLUETOOTH] Errore attivazione: $e');
     }
   }
 
-  /// Verifica lo stato Bluetooth e aggiorna se necessario
-  Future<void> _checkBluetoothState() async {
-    try {
-      final adapterState = await FlutterBluePlus.adapterState.first;
-      if (adapterState == BluetoothAdapterState.on && !_isBluetoothEnabled) {
-        // Bluetooth è attivo ma lo stato non è aggiornato
-        setState(() {
-          _isBluetoothEnabled = true;
-          _statusMessage = 'Bluetooth attivato. Ricerca locker...';
-        });
-        if (!_lockerFound) {
-          _startScan();
-        }
-      }
-    } catch (e) {
-      // Ignora errori
-    }
-  }
-
-  /// Avvia la ricerca del locker
+  /// Avvia la scansione Bluetooth
   Future<void> _startScan() async {
+    if (_isScanning) return;
+    
+    setState(() {
+      _isScanning = true;
+      _statusMessage = 'Ricerca locker in corso...';
+      _lockerFound = false;
+      _lockerConnected = false;
+    });
+
     try {
+      // TODO BACKEND: Usa UUID reale del locker
+      // final lockerUuid = await getLockerUuid(widget.cell.lockerId);
+      
+      // ⚠️ SOLO PER TESTING: Simula ricerca e connessione
+      await Future.delayed(const Duration(seconds: 2));
+      
+      // Simula scoperta del locker
       setState(() {
-        _isScanning = true;
-        _statusMessage = 'Ricerca locker in corso...';
-        _lockerFound = false;
-        _lockerConnected = false;
-      });
-
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
-
-      _scanResultsSubscription = FlutterBluePlus.scanResults.listen((results) {
-        if (!_lockerFound && _isScanning) {
-          // ⚠️ SOLO PER TESTING: Simula ritrovamento dopo 2 secondi
-          // IN PRODUZIONE: Verificare UUID o nome del dispositivo
-          Future.delayed(const Duration(seconds: 2), () {
-            if (mounted && _isScanning && !_lockerFound) {
-              setState(() {
-                _lockerFound = true;
-                _lockerConnected = true;
-                _isScanning = false;
-                _statusMessage = 'Locker trovato e connesso!';
-              });
-              FlutterBluePlus.stopScan();
-              
-              // Se è per deposito (onVerificationComplete presente), chiama il callback
-              if (widget.onVerificationComplete != null) {
-                Future.delayed(const Duration(milliseconds: 500), () {
-                  if (mounted) {
-                    widget.onVerificationComplete!();
-                  }
-                });
-              }
-            }
-          });
-        }
-      });
-
-      // Timeout dopo 10 secondi
-      Future.delayed(const Duration(seconds: 10), () {
-        if (mounted && _isScanning && !_lockerFound) {
-          setState(() {
-            _isScanning = false;
-            _statusMessage = 'Locker non trovato nelle vicinanze';
-          });
-          FlutterBluePlus.stopScan();
-        }
+        _lockerFound = true;
+        _lockerConnected = true;
+        _isScanning = false;
+        _statusMessage = 'Locker connesso';
       });
     } catch (e) {
+      debugPrint('⚠️ [SCAN] Errore: $e');
       setState(() {
-        _statusMessage = 'Errore durante la ricerca: $e';
         _isScanning = false;
+        _statusMessage = 'Errore nella ricerca';
       });
     }
   }
@@ -260,79 +236,41 @@ class _OpenCellPageState extends State<OpenCellPage> {
       CupertinoPageRoute(
         builder: (context) => ReportIssuePage(
           themeManager: widget.themeManager,
-          lockerId: widget.lockerId,
-          lockerName: widget.lockerName,
-          cellId: widget.cell.id,
+          lockerId: widget.cell.lockerId,
+          lockerName: widget.cell.lockerName,
+          cellId: widget.cell.cellId,
           cellNumber: widget.cell.cellNumber,
         ),
       ),
     );
   }
 
-  /// Apre la cella e attende la chiusura
+  /// Apre la cella
   Future<void> _openCell() async {
+    if (!_lockerConnected) return;
+    
     setState(() {
       _cellOpened = true;
-      _waitingForDoorClose = true;
-      _statusMessage = 'Cella aperta. Prendi l\'oggetto e chiudi lo sportello.';
+      _waitingForDoorClose = true; // Vai direttamente alla schermata di attesa chiusura
+      _statusMessage = 'Cella aperta';
     });
-
-    // Notifica apertura (gestita in modo sicuro per non bloccare il flusso)
-    try {
-      await NotificationService().notifyOpenCellInBackground(
-        ActiveCell(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          lockerId: widget.lockerId,
-          lockerName: widget.lockerName,
-          lockerType: 'Prestito',
-          cellNumber: widget.cell.cellNumber,
-          cellId: widget.cell.id,
-          startTime: DateTime.now(),
-          endTime: widget.cell.borrowDuration != null
-              ? DateTime.now().add(widget.cell.borrowDuration!)
-              : DateTime.now().add(const Duration(days: 7)),
-          type: CellUsageType.borrowed,
-        ),
-      );
-    } catch (e) {
-      debugPrint('⚠️ [NOTIFICATION] Errore nella notifica (non bloccante): $e');
-      // Continua comunque con il timer anche se la notifica fallisce
-    }
-
-    // ⚠️ SOLO PER TESTING: Timer di 3 secondi per simulare chiusura
-    // IN PRODUZIONE: Rilevare chiusura tramite sensore Bluetooth/backend che invierà segnale
-    // Il backend riceverà il segnale dal locker fisico e notificherà l'app
-    _doorCloseTimer?.cancel();
+    
+    // TODO BACKEND: Invia comando Bluetooth per aprire la cella
+    // await sendOpenCellCommand(widget.cell.cellId);
+    
+    // ⚠️ SOLO PER TESTING: Simula apertura
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    // Dopo 3 secondi, simula chiusura
     _doorCloseTimer = Timer(const Duration(seconds: 3), () {
-      debugPrint('⏱️ [TIMER] Timer scaduto - chiusura simulata');
-      if (mounted && _waitingForDoorClose) {
-        _handleDoorClosed();
-      } else {
-        debugPrint('⚠️ [TIMER] Widget non montato o non più in attesa');
-      }
+      _handleDoorClosed();
     });
-    debugPrint('✅ [TIMER] Timer di 3 secondi avviato per simulare chiusura');
   }
 
   /// Gestisce la chiusura dello sportello
-  /// 
-  /// ⚠️ SOLO PER TESTING: Viene chiamato dopo 3 secondi simulati
-  /// IN PRODUZIONE: Verrà chiamato quando il backend riceve il segnale di chiusura
-  /// dal locker fisico (tramite sensore)
   Future<void> _handleDoorClosed() async {
-    debugPrint('🔒 [CLOSE] Gestisco chiusura sportello');
+    if (!mounted || !_waitingForDoorClose) return;
     
-    if (!mounted) {
-      debugPrint('❌ [CLOSE] Widget non montato');
-      return;
-    }
-    
-    if (!_waitingForDoorClose) {
-      debugPrint('❌ [CLOSE] Non più in attesa di chiusura');
-      return;
-    }
-    
-    // Cancella timer
     _doorCloseTimer?.cancel();
     _doorCloseTimer = null;
     
@@ -340,54 +278,32 @@ class _OpenCellPageState extends State<OpenCellPage> {
       _waitingForDoorClose = false;
     });
 
-    debugPrint('📱 [CLOSE] Aggiungo cella alle celle attive...');
-    // ⚠️ SOLO PER TESTING: Aggiungi la cella alle celle attive
-    // IN PRODUZIONE: Il backend aggiungerà automaticamente quando viene aperta una cella
-    final activeCell = ActiveCell(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      lockerId: widget.lockerId,
-      lockerName: widget.lockerName,
-      lockerType: 'Prestito',
-      cellNumber: widget.cell.cellNumber,
-      cellId: widget.cell.id,
-      startTime: DateTime.now(),
-      endTime: widget.cell.borrowDuration != null
-          ? DateTime.now().add(widget.cell.borrowDuration!)
-          : DateTime.now().add(const Duration(days: 7)),
-      type: CellUsageType.borrowed,
-    );
-    
-    // Aggiungi alle celle attive (solo per testing, in produzione sarà il backend)
+    // TODO BACKEND: Notifica restituzione al backend
+    // POST /api/v1/cells/return
+    // Body: { cell_id, photo_base64 }
     final repository = AppDependencies.cellRepository;
-    if (repository is CellRepositoryMock) {
-      repository.addActiveCell(activeCell);
-    }
-    
-    debugPrint('📱 [CLOSE] Notifico chiusura...');
-    // Notifica chiusura
-    try {
-      await NotificationService().notifyCellClosed(activeCell);
-    } catch (e) {
-      debugPrint('⚠️ [NOTIFICATION] Errore nella notifica: $e');
+    if (repository != null) {
+      try {
+        await repository.notifyCellClosed(widget.cell.cellId);
+      } catch (e) {
+        debugPrint('⚠️ [RETURN] Errore notifica backend: $e');
+      }
     }
 
-    debugPrint('📱 [CLOSE] Navigo alla schermata di conferma...');
-    // Naviga alla schermata di conferma chiusura
+    // Naviga alla schermata di conferma
     if (mounted) {
       try {
         await Navigator.of(context).pushReplacement(
           CupertinoPageRoute(
-            builder: (context) => _DoorClosedConfirmationPage(
+            builder: (context) => _ReturnConfirmationPage(
               themeManager: widget.themeManager,
               cellNumber: widget.cell.cellNumber,
-              lockerName: widget.lockerName,
-              itemName: widget.cell.itemName ?? 'Oggetto',
+              lockerName: widget.cell.lockerName,
             ),
           ),
         );
-        debugPrint('✅ [CLOSE] Navigazione completata');
       } catch (e) {
-        debugPrint('❌ [CLOSE] Errore durante navigazione: $e');
+        debugPrint('❌ [RETURN] Errore durante navigazione: $e');
       }
     }
   }
@@ -404,7 +320,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
           navigationBar: CupertinoNavigationBar(
             backgroundColor: AppColors.surface(isDark),
             middle: Text(
-              'Apri cella',
+              'Restituisci oggetto',
               style: AppTextStyles.title(isDark),
             ),
             leading: CupertinoNavigationBarBackButton(
@@ -422,16 +338,18 @@ class _OpenCellPageState extends State<OpenCellPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (_waitingForDoorClose) ...[
+                  if (!_photoTaken) ...[
+                    // Richiesta foto
+                    _buildPhotoRequestScreen(isDark),
+                  ] else if (!_photoConfirmed) ...[
+                    // Anteprima foto e conferma
+                    _buildPhotoPreviewScreen(isDark),
+                  ] else if (_cellOpened && _waitingForDoorClose) ...[
                     // Schermata attesa chiusura sportello
                     _buildWaitingForCloseScreen(isDark),
-                  ] else if (_lockerConnected && _cellOpened == false) ...[
-                    // Se è per deposito, mostra schermata verifica completata
-                    if (widget.onVerificationComplete != null)
-                      _buildVerificationCompleteScreen(isDark)
-                    else
-                      // Schermata locker connesso - pulsante apri (per prestito)
-                      _buildConnectedScreen(isDark),
+                  ] else if (_lockerConnected && !_cellOpened) ...[
+                    // Schermata locker connesso - pulsante apri
+                    _buildConnectedScreen(isDark),
                   ] else ...[
                     // Schermata ricerca Bluetooth
                     _buildBluetoothScreen(isDark),
@@ -472,7 +390,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
     );
   }
 
-  Widget _buildWaitingForCloseScreen(bool isDark) {
+  Widget _buildPhotoRequestScreen(bool isDark) {
     return Column(
       children: [
         Container(
@@ -483,14 +401,14 @@ class _OpenCellPageState extends State<OpenCellPage> {
             shape: BoxShape.circle,
           ),
           child: Icon(
-            CupertinoIcons.lock_open,
+            CupertinoIcons.camera_fill,
             size: 60,
             color: AppColors.primary(isDark),
           ),
         ),
         const SizedBox(height: 32),
         Text(
-          'Prendi l\'oggetto in prestito',
+          'Scatta una foto',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -500,57 +418,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Prendi l\'oggetto dalla cella. Ricorda di riportarlo entro la scadenza!',
-          style: TextStyle(
-            fontSize: 15,
-            color: AppColors.textSecondary(isDark),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 40),
-        const CupertinoActivityIndicator(radius: 20),
-        const SizedBox(height: 16),
-        Text(
-          'In attesa della chiusura dello sportello...',
-          style: TextStyle(
-            fontSize: 13,
-            color: AppColors.textSecondary(isDark),
-          ),
-          textAlign: TextAlign.center,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildConnectedScreen(bool isDark) {
-    return Column(
-      children: [
-        Container(
-          width: 120,
-          height: 120,
-          decoration: BoxDecoration(
-            color: AppColors.success(isDark).withOpacity(0.1),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            CupertinoIcons.check_mark_circled_solid,
-            size: 60,
-            color: AppColors.success(isDark),
-          ),
-        ),
-        const SizedBox(height: 32),
-        Text(
-          'Locker connesso!',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: AppColors.text(isDark),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Pronto per aprire la cella',
+          'Scatta una foto dell\'oggetto per verificare le condizioni prima della restituzione',
           style: TextStyle(
             fontSize: 15,
             color: AppColors.textSecondary(isDark),
@@ -563,9 +431,9 @@ class _OpenCellPageState extends State<OpenCellPage> {
           child: CupertinoButton.filled(
             padding: const EdgeInsets.symmetric(vertical: 16),
             borderRadius: BorderRadius.circular(12),
-            onPressed: _openCell,
+            onPressed: _requestPhoto,
             child: const Text(
-              'Apri cella',
+              'Scatta foto',
               style: TextStyle(
                 color: CupertinoColors.white,
                 fontWeight: FontWeight.w600,
@@ -578,25 +446,39 @@ class _OpenCellPageState extends State<OpenCellPage> {
     );
   }
 
-  Widget _buildVerificationCompleteScreen(bool isDark) {
+  Widget _buildPhotoPreviewScreen(bool isDark) {
     return Column(
       children: [
         Container(
-          width: 120,
-          height: 120,
+          width: 200,
+          height: 200,
           decoration: BoxDecoration(
-            color: AppColors.success(isDark).withOpacity(0.1),
-            shape: BoxShape.circle,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: AppColors.borderColor(isDark),
+              width: 2,
+            ),
           ),
-          child: Icon(
-            CupertinoIcons.check_mark_circled_solid,
-            size: 60,
-            color: AppColors.success(isDark),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: _photoFile != null
+                ? Image.file(
+                    _photoFile!,
+                    fit: BoxFit.cover,
+                  )
+                : Container(
+                    color: AppColors.surface(isDark),
+                    child: Icon(
+                      CupertinoIcons.photo,
+                      size: 60,
+                      color: AppColors.textSecondary(isDark),
+                    ),
+                  ),
           ),
         ),
         const SizedBox(height: 32),
         Text(
-          'Presenza verificata',
+          'Anteprima foto',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -606,7 +488,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Procedendo al pagamento...',
+          'Verifica che la foto sia chiara e mostri l\'oggetto correttamente',
           style: TextStyle(
             fontSize: 15,
             color: AppColors.textSecondary(isDark),
@@ -614,7 +496,42 @@ class _OpenCellPageState extends State<OpenCellPage> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 40),
-        const CupertinoActivityIndicator(radius: 20),
+        Row(
+          children: [
+            Expanded(
+              child: CupertinoButton(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                color: AppColors.surface(isDark),
+                borderRadius: BorderRadius.circular(12),
+                onPressed: _retakePhoto,
+                child: Text(
+                  'Riscatta',
+                  style: TextStyle(
+                    color: AppColors.text(isDark),
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: CupertinoButton.filled(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                borderRadius: BorderRadius.circular(12),
+                onPressed: _confirmPhoto,
+                child: const Text(
+                  'Conferma',
+                  style: TextStyle(
+                    color: CupertinoColors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
@@ -701,6 +618,151 @@ class _OpenCellPageState extends State<OpenCellPage> {
     );
   }
 
+  Widget _buildConnectedScreen(bool isDark) {
+    return Column(
+      children: [
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            color: AppColors.success(isDark).withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            CupertinoIcons.check_mark_circled_solid,
+            size: 60,
+            color: AppColors.success(isDark),
+          ),
+        ),
+        const SizedBox(height: 32),
+        Text(
+          'Locker connesso!',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.text(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Pronto per aprire la cella',
+          style: TextStyle(
+            fontSize: 15,
+            color: AppColors.textSecondary(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 40),
+        SizedBox(
+          width: double.infinity,
+          child: CupertinoButton.filled(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            borderRadius: BorderRadius.circular(12),
+            onPressed: _openCell,
+            child: const Text(
+              'Apri cella',
+              style: TextStyle(
+                color: CupertinoColors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCellOpenedScreen(bool isDark) {
+    return Column(
+      children: [
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            color: AppColors.primary(isDark).withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            CupertinoIcons.lock_open,
+            size: 60,
+            color: AppColors.primary(isDark),
+          ),
+        ),
+        const SizedBox(height: 32),
+        Text(
+          'Metti l\'oggetto nella cella',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.text(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Metti l\'oggetto dentro la cella',
+          style: TextStyle(
+            fontSize: 15,
+            color: AppColors.textSecondary(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildWaitingForCloseScreen(bool isDark) {
+    return Column(
+      children: [
+        Container(
+          width: 120,
+          height: 120,
+          decoration: BoxDecoration(
+            color: AppColors.primary(isDark).withOpacity(0.1),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            CupertinoIcons.lock_open,
+            size: 60,
+            color: AppColors.primary(isDark),
+          ),
+        ),
+        const SizedBox(height: 32),
+        Text(
+          'In attesa della chiusura dello sportello',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w700,
+            color: AppColors.text(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Chiudi correttamente lo sportello della cella',
+          style: TextStyle(
+            fontSize: 15,
+            color: AppColors.textSecondary(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 40),
+        const CupertinoActivityIndicator(radius: 20),
+        const SizedBox(height: 16),
+        Text(
+          'In attesa della chiusura...',
+          style: TextStyle(
+            fontSize: 13,
+            color: AppColors.textSecondary(isDark),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+
   Widget _buildLockerInfo(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -720,7 +782,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  widget.lockerName,
+                  widget.cell.lockerName,
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.text(isDark),
@@ -754,18 +816,16 @@ class _OpenCellPageState extends State<OpenCellPage> {
   }
 }
 
-/// Schermata di conferma chiusura sportello
-class _DoorClosedConfirmationPage extends StatelessWidget {
+/// Pagina di conferma restituzione
+class _ReturnConfirmationPage extends StatelessWidget {
   final ThemeManager themeManager;
   final String cellNumber;
   final String lockerName;
-  final String itemName;
 
-  const _DoorClosedConfirmationPage({
+  const _ReturnConfirmationPage({
     required this.themeManager,
     required this.cellNumber,
     required this.lockerName,
-    required this.itemName,
   });
 
   @override
@@ -780,7 +840,7 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
           navigationBar: CupertinoNavigationBar(
             backgroundColor: AppColors.surface(isDark),
             middle: Text(
-              'Conferma',
+              'Restituzione completata',
               style: AppTextStyles.title(isDark),
             ),
           ),
@@ -815,14 +875,14 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Hai preso in prestito: $itemName',
+                    'L\'oggetto è stato restituito con successo',
                     style: TextStyle(
                       fontSize: 15,
                       color: AppColors.textSecondary(isDark),
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 40),
+                  const Spacer(),
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -872,14 +932,13 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(height: 32),
                   SizedBox(
                     width: double.infinity,
                     child: CupertinoButton.filled(
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       borderRadius: BorderRadius.circular(12),
                       onPressed: () {
-                        // Torna alla home (pop fino alla home)
                         Navigator.of(context).popUntil((route) => route.isFirst);
                       },
                       child: const Text(
@@ -901,4 +960,3 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
     );
   }
 }
-

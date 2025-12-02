@@ -1,0 +1,352 @@
+import 'package:flutter/cupertino.dart';
+import 'package:app/core/theme/theme_manager.dart';
+import 'package:app/core/styles/app_colors.dart';
+import 'package:app/core/styles/app_text_styles.dart';
+
+/// Pagina che mostra la lista delle segnalazioni inviate dall'utente
+/// 
+/// Mostra tutte le segnalazioni che l'utente ha inviato, con dettagli su:
+/// - Categoria del problema
+/// - Descrizione
+/// - Data e ora
+/// - Stato (in elaborazione, risolta, ecc.)
+/// - Foto se presente
+/// 
+/// **TODO quando il backend sarà pronto:**
+/// - Caricare segnalazioni dal backend (GET /api/v1/reports)
+/// - Paginazione per grandi quantità di dati
+/// - Filtri per stato e categoria
+/// - Aggiornamento stato in tempo reale
+class ReportsListPage extends StatefulWidget {
+  final ThemeManager themeManager;
+
+  const ReportsListPage({
+    super.key,
+    required this.themeManager,
+  });
+
+  @override
+  State<ReportsListPage> createState() => _ReportsListPageState();
+}
+
+class _ReportsListPageState extends State<ReportsListPage> {
+  // ⚠️ SOLO PER TESTING: Dati mock
+  // IN PRODUZIONE: Caricare dal backend
+  final List<Map<String, dynamic>> _reports = [
+    {
+      'id': '1',
+      'lockerName': 'Locker Centrale',
+      'cellNumber': 'A-12',
+      'category': 'Cella non si apre',
+      'description': 'La cella non si apre quando premo il pulsante. Ho provato più volte ma non funziona.',
+      'date': DateTime.now().subtract(const Duration(days: 2)),
+      'status': 'in_elaborazione',
+      'hasPhoto': true,
+    },
+    {
+      'id': '2',
+      'lockerName': 'Locker Università',
+      'cellNumber': 'B-05',
+      'category': 'Cella danneggiata',
+      'description': 'La porta della cella è danneggiata e non si chiude correttamente.',
+      'date': DateTime.now().subtract(const Duration(days: 5)),
+      'status': 'risolta',
+      'hasPhoto': false,
+    },
+    {
+      'id': '3',
+      'lockerName': 'Locker Stazione',
+      'cellNumber': null,
+      'category': 'Problema connessione Bluetooth',
+      'description': 'Non riesco a connettermi al locker tramite Bluetooth. Il dispositivo non viene rilevato.',
+      'date': DateTime.now().subtract(const Duration(days: 7)),
+      'status': 'risolta',
+      'hasPhoto': false,
+    },
+  ];
+
+  bool _isLoading = false;
+
+  String _getStatusLabel(String status) {
+    switch (status) {
+      case 'in_elaborazione':
+        return 'In elaborazione';
+      case 'risolta':
+        return 'Risolta';
+      case 'rifiutata':
+        return 'Rifiutata';
+      default:
+        return 'Sconosciuto';
+    }
+  }
+
+  Color _getStatusColor(String status, bool isDark) {
+    switch (status) {
+      case 'in_elaborazione':
+        return AppColors.primary(isDark);
+      case 'risolta':
+        return AppColors.success(isDark);
+      case 'rifiutata':
+        return CupertinoColors.systemRed;
+      default:
+        return AppColors.textSecondary(isDark);
+    }
+  }
+
+  String _getCategoryLabel(String category) {
+    return category;
+  }
+
+  String _formatDate(DateTime date) {
+    final now = DateTime.now();
+    final difference = now.difference(date);
+
+    if (difference.inDays == 0) {
+      if (difference.inHours == 0) {
+        if (difference.inMinutes == 0) {
+          return 'Adesso';
+        }
+        return '${difference.inMinutes} minuti fa';
+      }
+      return '${difference.inHours} ore fa';
+    } else if (difference.inDays == 1) {
+      return 'Ieri';
+    } else if (difference.inDays < 7) {
+      return '${difference.inDays} giorni fa';
+    } else {
+      return '${date.day}/${date.month}/${date.year}';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: widget.themeManager,
+      builder: (context, _) {
+        final isDark = widget.themeManager.isDarkMode;
+
+        return CupertinoPageScaffold(
+          backgroundColor: AppColors.background(isDark),
+          navigationBar: CupertinoNavigationBar(
+            backgroundColor: AppColors.surface(isDark),
+            middle: Text(
+              'Segnalazioni',
+              style: AppTextStyles.title(isDark),
+            ),
+          ),
+          child: SafeArea(
+            child: _isLoading
+                ? const Center(
+                    child: CupertinoActivityIndicator(radius: 20),
+                  )
+                : _reports.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              CupertinoIcons.exclamationmark_triangle,
+                              size: 60,
+                              color: AppColors.textSecondary(isDark),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              'Nessuna segnalazione',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.text(isDark),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Le tue segnalazioni appariranno qui',
+                              style: TextStyle(
+                                fontSize: 15,
+                                color: AppColors.textSecondary(isDark),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    : CupertinoScrollbar(
+                        child: ListView(
+                          padding: const EdgeInsets.all(16),
+                          children: [
+                            ..._reports.map((report) => _buildReportCard(
+                                  report,
+                                  isDark,
+                                )),
+                          ],
+                        ),
+                      ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildReportCard(Map<String, dynamic> report, bool isDark) {
+    final status = report['status'] as String;
+    final statusLabel = _getStatusLabel(status);
+    final statusColor = _getStatusColor(status, isDark);
+    final category = report['category'] as String;
+    final description = report['description'] as String;
+    final date = report['date'] as DateTime;
+    final lockerName = report['lockerName'] as String;
+    final cellNumber = report['cellNumber'] as String?;
+    final hasPhoto = report['hasPhoto'] as bool;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface(isDark),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: AppColors.borderColor(isDark).withOpacity(0.1),
+        ),
+      ),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: () {
+          // TODO: Navigare a pagina dettaglio segnalazione
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header con stato e data
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Categoria
+                        Text(
+                          category,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.text(isDark),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        // Locker e cella
+                        Row(
+                          children: [
+                            Icon(
+                              CupertinoIcons.location_solid,
+                              size: 14,
+                              color: AppColors.textSecondary(isDark),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              lockerName,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppColors.textSecondary(isDark),
+                              ),
+                            ),
+                            if (cellNumber != null) ...[
+                              const SizedBox(width: 8),
+                              Icon(
+                                CupertinoIcons.lock,
+                                size: 14,
+                                color: AppColors.textSecondary(isDark),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Cella $cellNumber',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary(isDark),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Badge stato
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: statusColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Descrizione
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppColors.text(isDark),
+                ),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              // Footer con foto e data
+              Row(
+                children: [
+                  if (hasPhoto) ...[
+                    Icon(
+                      CupertinoIcons.photo,
+                      size: 16,
+                      color: AppColors.textSecondary(isDark),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Foto allegata',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.textSecondary(isDark),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Icon(
+                    CupertinoIcons.clock,
+                    size: 14,
+                    color: AppColors.textSecondary(isDark),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    _formatDate(date),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary(isDark),
+                    ),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    CupertinoIcons.chevron_right,
+                    size: 16,
+                    color: AppColors.textSecondary(isDark),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

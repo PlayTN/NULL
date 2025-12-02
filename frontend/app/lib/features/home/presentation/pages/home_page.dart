@@ -22,6 +22,7 @@ import 'package:app/features/profile/presentation/pages/history_page.dart';
 import 'package:app/features/profile/presentation/pages/active_reservations_page.dart';
 import 'package:app/features/profile/presentation/pages/donate_page.dart';
 import 'package:app/features/profile/presentation/pages/help_page.dart';
+import 'package:app/features/reports/presentation/pages/reports_list_page.dart';
 import 'package:app/core/utils/responsive_utils.dart';
 import 'package:app/features/notifications/data/repositories/notification_repository_impl.dart';
 import 'package:app/features/notifications/data/repositories/notification_repository.dart';
@@ -1115,6 +1116,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                     Navigator.of(context).push(
                       CupertinoPageRoute(
                         builder: (context) => HelpPage(
+                          themeManager: widget.themeManager,
+                        ),
+                      ),
+                    );
+                  },
+                  onReportsTap: () {
+                    setState(() {
+                      _showProfilePopup = false;
+                    });
+                    Navigator.of(context).push(
+                      CupertinoPageRoute(
+                        builder: (context) => ReportsListPage(
                           themeManager: widget.themeManager,
                         ),
                       ),

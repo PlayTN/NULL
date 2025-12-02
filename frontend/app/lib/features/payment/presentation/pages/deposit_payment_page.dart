@@ -40,7 +40,7 @@ class DepositPaymentPage extends StatefulWidget {
 
 class _DepositPaymentPageState extends State<DepositPaymentPage> {
   // Selezione durata
-  int _selectedHours = 24; // Default 24 ore (1 giorno)
+  int _selectedHours = 1; // Default 1 giorno
   bool _useDays = true; // true = giorni, false = ore
   
   // Stati pagamento
@@ -432,7 +432,7 @@ class _DepositPaymentPageState extends State<DepositPaymentPage> {
                   onPressed: () {
                     setState(() {
                       _useDays = true;
-                      _selectedHours = 24; // Reset a 1 giorno
+                      _selectedHours = 1; // Reset a 1 giorno
                     });
                   },
                   child: Text(

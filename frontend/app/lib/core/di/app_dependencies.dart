@@ -30,9 +30,11 @@ class AppDependencies {
   /// 1. Creare CellRepositoryImpl che implementa le chiamate HTTP reali
   /// 2. Cambiare useMockData a false
   /// 3. Configurare ApiClient con l'URL del backend
+  /// 
+  /// **Nota**: Il repository mock è un singleton per mantenere i dati in memoria
   static CellRepository? get cellRepository {
     if (useMockData) {
-      return CellRepositoryMock();
+      return CellRepositoryMock(); // Singleton, mantiene i dati tra le chiamate
     } else {
       // TODO: Implementare CellRepositoryImpl quando il backend sarà pronto
       // return CellRepositoryImpl(apiClient: ApiClient(baseUrl: ApiConfig.baseUrl));

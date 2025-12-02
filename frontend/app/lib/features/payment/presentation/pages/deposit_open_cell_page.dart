@@ -5,8 +5,12 @@ import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/core/styles/app_colors.dart';
 import 'package:app/core/styles/app_text_styles.dart';
 import 'package:app/core/notifications/notification_service.dart';
+import 'package:app/core/di/app_dependencies.dart';
 import 'package:app/features/cells/domain/models/active_cell.dart';
+import 'package:app/features/cells/data/repositories/cell_repository_mock.dart';
 import 'package:app/features/lockers/domain/models/locker_cell.dart';
+import 'package:app/features/lockers/domain/models/cell_type.dart';
+import 'package:app/features/reports/presentation/pages/report_issue_page.dart';
 
 /// Pagina per aprire una cella di deposito tramite Bluetooth
 /// 
@@ -52,6 +56,7 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   bool _lockerFound = false;
   bool _lockerConnected = false;
   bool _waitingForBluetoothActivation = false;
+  bool _showRetryButton = false; // Flag per mostrare il pulsante "Riprova" solo dopo un delay
   String _statusMessage = 'Preparazione...';
   
   // Stati apertura/chiusura cella
@@ -113,12 +118,16 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
 
       setState(() {
         _isBluetoothEnabled = true;
-        _statusMessage = 'Ricerca locker in corso...';
-        _isScanning = true;
+        _waitingForBluetoothActivation = false;
       });
 
       _setupBluetoothListener();
-      await _startScan();
+      // Avvia la ricerca dopo un breve delay per assicurarsi che sia tutto pronto
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && !_lockerFound && !_isScanning) {
+          _startScan();
+        }
+      });
     } catch (e) {
       debugPrint('❌ [BLUETOOTH] Errore: $e');
       setState(() {
@@ -141,8 +150,14 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
           _statusMessage = 'Ricerca locker in corso...';
         });
         
-        if (!_isScanning && !_lockerFound) {
-          _startScan();
+        if (!_isScanning && !_lockerFound && mounted) {
+          debugPrint('📡 [BLUETOOTH] Bluetooth attivato, avvio scansione...');
+          // Avvia la ricerca dopo un breve delay per assicurarsi che sia tutto pronto
+          Future.delayed(const Duration(milliseconds: 500), () {
+            if (mounted && !_lockerFound && !_isScanning) {
+              _startScan();
+            }
+          });
         }
       } else if (state == BluetoothAdapterState.off) {
         setState(() {
@@ -166,17 +181,23 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
 
   /// Avvia la ricerca del locker
   Future<void> _startScan() async {
-    if (_isScanning) return;
+    if (_isScanning) {
+      debugPrint('⚠️ [SCAN] Scansione già in corso, ignoro');
+      return;
+    }
 
+    debugPrint('🔍 [SCAN] Avvio ricerca locker...');
     try {
       setState(() {
         _isScanning = true;
         _statusMessage = 'Ricerca locker in corso...';
         _lockerFound = false;
         _lockerConnected = false;
+        _showRetryButton = false; // Nascondi il pulsante "Riprova" quando inizia una nuova scansione
       });
 
       await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+      debugPrint('✅ [SCAN] Scansione avviata');
 
       _scanResultsSubscription?.cancel();
       _scanResultsSubscription = FlutterBluePlus.scanResults.listen((results) {
@@ -185,13 +206,16 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
           // IN PRODUZIONE: Verificare UUID o nome del dispositivo
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted && _isScanning && !_lockerFound) {
+              debugPrint('✅ [SCAN] Simulo ritrovamento locker');
               setState(() {
                 _lockerFound = true;
                 _lockerConnected = true;
                 _isScanning = false;
-                _statusMessage = 'Locker trovato e connesso!';
+                _statusMessage = 'Locker connesso';
+                _showRetryButton = false; // Nascondi il pulsante "Riprova" quando il locker è trovato
               });
               FlutterBluePlus.stopScan();
+              debugPrint('✅ [SCAN] Locker connesso, scansione fermata');
             }
           });
         }
@@ -200,11 +224,22 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
       // Timeout dopo 10 secondi
       Future.delayed(const Duration(seconds: 10), () {
         if (mounted && _isScanning && !_lockerFound) {
+          debugPrint('⏱️ [SCAN] Timeout - locker non trovato');
           setState(() {
             _isScanning = false;
             _statusMessage = 'Locker non trovato. Riprova più tardi.';
+            _showRetryButton = true; // Mostra il pulsante "Riprova" dopo il timeout
           });
           FlutterBluePlus.stopScan();
+        }
+      });
+      
+      // Mostra il pulsante "Riprova" solo dopo almeno 5 secondi di scansione fallita
+      Future.delayed(const Duration(seconds: 5), () {
+        if (mounted && !_lockerFound && !_lockerConnected && _isBluetoothEnabled && !_isScanning) {
+          setState(() {
+            _showRetryButton = true;
+          });
         }
       });
     } catch (e) {
@@ -214,6 +249,21 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         _isScanning = false;
       });
     }
+  }
+
+  /// Gestisce la segnalazione di un problema
+  void _handleReport() {
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (context) => ReportIssuePage(
+          themeManager: widget.themeManager,
+          lockerId: widget.lockerId,
+          lockerName: widget.lockerName,
+          cellId: widget.cell.id,
+          cellNumber: widget.cell.cellNumber,
+        ),
+      ),
+    );
   }
 
   /// Apre la cella e attende la chiusura
@@ -243,26 +293,21 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
       debugPrint('⚠️ [NOTIFICATION] Errore nella notifica (non bloccante): $e');
     }
 
-    // ⚠️ SOLO PER TESTING: Timer di 3 secondi per simulare inserimento oggetti e chiusura
+    // ⚠️ SOLO PER TESTING: Timer di 3 secondi per simulare chiusura
     // IN PRODUZIONE: Rilevare chiusura tramite sensore Bluetooth/backend che invierà segnale
     // Il backend riceverà il segnale dal locker fisico e notificherà l'app
     _doorCloseTimer?.cancel();
+    setState(() {
+      _waitingForDoorClose = true;
+      _statusMessage = 'In attesa della chiusura dello sportello...';
+    });
+    // Dopo 3 secondi, simula chiusura
     _doorCloseTimer = Timer(const Duration(seconds: 3), () {
-      debugPrint('⏱️ [TIMER] Timer scaduto - simulazione inserimento oggetti completata');
-      if (mounted && _cellOpened && !_waitingForDoorClose) {
-        setState(() {
-          _waitingForDoorClose = true;
-          _statusMessage = 'In attesa della chiusura dello sportello...';
-        });
-        // Aspetta altri 3 secondi per la chiusura effettiva
-        Timer(const Duration(seconds: 3), () {
-          if (mounted && _waitingForDoorClose) {
-            _handleDoorClosed();
-          }
-        });
+      if (mounted && _waitingForDoorClose) {
+        _handleDoorClosed();
       }
     });
-    debugPrint('✅ [TIMER] Timer di 3 secondi avviato per simulare inserimento oggetti');
+    debugPrint('✅ [TIMER] Timer di 3 secondi avviato per simulare chiusura');
   }
 
   /// Gestisce la chiusura dello sportello
@@ -293,23 +338,49 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
     // TODO BACKEND: Salvare deposito nel backend
     // await depositRepository.createDeposit(...);
 
-    debugPrint('📱 [CLOSE] Notifico chiusura...');
-    try {
-      await NotificationService().notifyCellClosed(
-        ActiveCell(
-          id: DateTime.now().millisecondsSinceEpoch.toString(),
-          lockerId: widget.lockerId,
-          lockerName: widget.lockerName,
-          lockerType: 'Deposito',
-          cellNumber: widget.cell.cellNumber,
-          cellId: widget.cell.id,
-          startTime: DateTime.now(),
-          endTime: DateTime.now().add(widget.duration),
-          type: CellUsageType.deposited,
-        ),
+    final repository = AppDependencies.cellRepository;
+    
+    // Se skipBluetoothVerification è false, significa che è uno sblocco di una cella già depositata
+    // In questo caso, rimuovi la cella dalle attive e aggiungi allo storico
+    if (!widget.skipBluetoothVerification) {
+      debugPrint('📱 [CLOSE] Rimuovo cella dalle celle attive (sblocco)...');
+      if (repository != null) {
+        try {
+          await repository.notifyCellClosed(widget.cell.id);
+        } catch (e) {
+          debugPrint('⚠️ [CLOSE] Errore notifica backend: $e');
+        }
+      }
+    } else {
+      // È un nuovo deposito, aggiungi alle celle attive
+      debugPrint('📱 [CLOSE] Aggiungo cella alle celle attive (nuovo deposito)...');
+      // ⚠️ SOLO PER TESTING: Aggiungi la cella alle celle attive
+      // IN PRODUZIONE: Il backend aggiungerà automaticamente quando viene aperta una cella
+      final activeCell = ActiveCell(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        lockerId: widget.lockerId,
+        lockerName: widget.lockerName,
+        lockerType: 'Deposito',
+        cellNumber: widget.cell.cellNumber,
+        cellId: widget.cell.id,
+        startTime: DateTime.now(),
+        endTime: DateTime.now().add(widget.duration),
+        type: widget.cell.type == CellType.pickup 
+            ? CellUsageType.pickup 
+            : CellUsageType.deposited,
       );
-    } catch (e) {
-      debugPrint('⚠️ [NOTIFICATION] Errore nella notifica: $e');
+      
+      // Aggiungi alle celle attive (solo per testing, in produzione sarà il backend)
+      if (repository is CellRepositoryMock) {
+        repository.addActiveCell(activeCell);
+      }
+      
+      debugPrint('📱 [CLOSE] Notifico chiusura...');
+      try {
+        await NotificationService().notifyCellClosed(activeCell);
+      } catch (e) {
+        debugPrint('⚠️ [NOTIFICATION] Errore nella notifica: $e');
+      }
     }
 
     debugPrint('📱 [CLOSE] Navigo alla schermata di conferma...');
@@ -322,6 +393,8 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
               cellNumber: widget.cell.cellNumber,
               lockerName: widget.lockerName,
               cellSize: widget.cell.size.label,
+              isPickup: widget.cell.type == CellType.pickup,
+              isUnlock: !widget.skipBluetoothVerification,
             ),
           ),
         );
@@ -343,8 +416,16 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
           backgroundColor: AppColors.background(isDark),
           navigationBar: CupertinoNavigationBar(
             backgroundColor: AppColors.surface(isDark),
-            middle: const Text('Apri cella'),
+            middle: Text(
+              widget.cell.type == CellType.pickup 
+                  ? 'Ritira ordine'
+                  : !widget.skipBluetoothVerification
+                      ? 'Ritira oggetti'
+                      : 'Deposita oggetti',
+              style: AppTextStyles.title(isDark),
+            ),
             leading: CupertinoNavigationBarBackButton(
+              color: AppColors.primary(isDark),
               onPressed: () {
                 _doorCloseTimer?.cancel();
                 FlutterBluePlus.stopScan();
@@ -358,20 +439,45 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  if (_waitingForDoorClose) ...[
+                  if (_cellOpened && _waitingForDoorClose) ...[
                     // Schermata attesa chiusura sportello
                     _buildWaitingForCloseScreen(isDark),
-                  ] else if (_lockerConnected && _cellOpened == false) ...[
+                  ] else if (_cellOpened && !_waitingForDoorClose) ...[
+                    // Cella aperta, in attesa che l'utente metta/ritiri oggetti
+                    _buildCellOpenedScreen(isDark),
+                  ] else if (_lockerConnected && !_cellOpened) ...[
                     // Schermata locker connesso - pulsante apri
                     _buildConnectedScreen(isDark),
-                  ] else if (_cellOpened && !_waitingForDoorClose) ...[
-                    // Schermata cella aperta - deposita oggetti
-                    _buildCellOpenedScreen(isDark),
                   ] else ...[
                     // Schermata ricerca Bluetooth
                     _buildBluetoothScreen(isDark),
                   ],
                   const Spacer(),
+                  // Pulsante segnala problema (posizione uniforme in tutte le pagine)
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    onPressed: _handleReport,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          CupertinoIcons.exclamationmark_triangle,
+                          size: 18,
+                          color: AppColors.textSecondary(isDark),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Segnala problema',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: AppColors.textSecondary(isDark),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   _buildLockerInfo(isDark),
                 ],
               ),
@@ -440,14 +546,20 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
               ),
             ],
           ),
-        if (!_isScanning && !_lockerFound && _isBluetoothEnabled && !_waitingForBluetoothActivation) ...[
+        // Mostriamo il pulsante "Riprova" solo dopo un delay e se la scansione è fallita
+        if (_showRetryButton && !_isScanning && !_lockerFound && _isBluetoothEnabled && !_waitingForBluetoothActivation && !_lockerConnected) ...[
           SizedBox(
             width: double.infinity,
             child: CupertinoButton(
               padding: const EdgeInsets.symmetric(vertical: 16),
               color: AppColors.surface(isDark),
               borderRadius: BorderRadius.circular(12),
-              onPressed: _checkBluetoothAndStartScan,
+              onPressed: () {
+                setState(() {
+                  _showRetryButton = false; // Nascondi il pulsante quando si riprova
+                });
+                _checkBluetoothAndStartScan();
+              },
               child: Text(
                 'Riprova',
                 style: TextStyle(
@@ -572,6 +684,10 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   }
 
   Widget _buildCellOpenedScreen(bool isDark) {
+    // Determina il tipo di operazione in base al tipo di cella e se è uno sblocco
+    final bool isPickup = widget.cell.type == CellType.pickup;
+    final bool isUnlock = !widget.skipBluetoothVerification; // Se false, è uno sblocco per ritirare
+    
     return Column(
       children: [
         Container(
@@ -589,7 +705,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         ),
         const SizedBox(height: 32),
         Text(
-          'Deposita i tuoi oggetti',
+          isPickup
+              ? 'Ritira il tuo ordine'
+              : isUnlock
+                  ? 'Ritira i tuoi oggetti'
+                  : 'Deposita i tuoi oggetti',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -599,20 +719,13 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Metti i tuoi oggetti dentro la cella. Ricorda di ritirarli entro la scadenza!',
+          isPickup
+              ? 'Ritira il tuo ordine dalla cella'
+              : isUnlock
+                  ? 'Ritira i tuoi oggetti dalla cella'
+                  : 'Metti i tuoi oggetti dentro la cella',
           style: TextStyle(
             fontSize: 15,
-            color: AppColors.textSecondary(isDark),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 40),
-        const CupertinoActivityIndicator(radius: 20),
-        const SizedBox(height: 16),
-        Text(
-          'In attesa della chiusura dello sportello...',
-          style: TextStyle(
-            fontSize: 13,
             color: AppColors.textSecondary(isDark),
           ),
           textAlign: TextAlign.center,
@@ -622,6 +735,10 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   }
 
   Widget _buildWaitingForCloseScreen(bool isDark) {
+    // Determina il tipo di operazione in base al tipo di cella e se è uno sblocco
+    final bool isPickup = widget.cell.type == CellType.pickup;
+    final bool isUnlock = !widget.skipBluetoothVerification; // Se false, è uno sblocco per ritirare
+    
     return Column(
       children: [
         Container(
@@ -639,7 +756,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         ),
         const SizedBox(height: 32),
         Text(
-          'Deposita i tuoi oggetti',
+          isPickup
+              ? 'Ritira il tuo ordine'
+              : isUnlock
+                  ? 'Ritira i tuoi oggetti'
+                  : 'Deposita i tuoi oggetti',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -649,7 +770,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Metti i tuoi oggetti dentro la cella. Ricorda di ritirarli entro la scadenza!',
+          isPickup
+              ? 'Ritira il tuo ordine dalla cella e chiudi correttamente lo sportello'
+              : isUnlock
+                  ? 'Ritira i tuoi oggetti dalla cella e chiudi correttamente lo sportello'
+                  : 'Metti i tuoi oggetti dentro la cella e chiudi correttamente lo sportello',
           style: TextStyle(
             fontSize: 15,
             color: AppColors.textSecondary(isDark),
@@ -672,18 +797,22 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   }
 }
 
-/// Schermata di conferma chiusura sportello per deposito
+/// Schermata di conferma chiusura sportello per deposito/ritiro/pickup
 class _DepositClosedConfirmationPage extends StatelessWidget {
   final ThemeManager themeManager;
   final String cellNumber;
   final String lockerName;
   final String cellSize;
+  final bool isPickup;
+  final bool isUnlock;
 
   const _DepositClosedConfirmationPage({
     required this.themeManager,
     required this.cellNumber,
     required this.lockerName,
     required this.cellSize,
+    this.isPickup = false,
+    this.isUnlock = false,
   });
 
   @override
@@ -723,7 +852,7 @@ class _DepositClosedConfirmationPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 32),
                   Text(
-                    'Deposito completato',
+                    'Sportello chiuso correttamente',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.w700,
@@ -733,7 +862,11 @@ class _DepositClosedConfirmationPage extends StatelessWidget {
                   ),
                   const SizedBox(height: 16),
                   Text(
-                    'Il tuo oggetto è stato depositato con successo',
+                    isPickup
+                        ? 'Il tuo ordine è stato ritirato con successo'
+                        : isUnlock
+                            ? 'I tuoi oggetti sono stati ritirati con successo'
+                            : 'Il tuo oggetto è stato depositato con successo',
                     style: TextStyle(
                       fontSize: 15,
                       color: AppColors.textSecondary(isDark),

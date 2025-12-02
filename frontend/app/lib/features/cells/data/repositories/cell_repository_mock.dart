@@ -3,12 +3,62 @@ import 'package:app/features/cells/domain/repositories/cell_repository.dart';
 
 /// Implementazione mock del repository per le celle
 /// Simula chiamate API con delay per testare l'app senza backend
+/// 
+/// ⚠️ SOLO PER TESTING: Gestisce celle attive e storico in memoria
+/// IN PRODUZIONE: Verrà sostituito con chiamate HTTP reali al backend
 class CellRepositoryMock implements CellRepository {
+  // Singleton instance
+  static CellRepositoryMock? _instance;
+  
   // Simula il delay di una chiamata API reale
   static const Duration _apiDelay = Duration(milliseconds: 500);
   
   // Mock data - in produzione verrà dal backend
   final List<ActiveCell> _mockActiveCells = [];
+  final List<ActiveCell> _mockHistory = []; // Storico celle completate
+  
+  // Costruttore privato per singleton
+  CellRepositoryMock._internal() {
+    // ⚠️ SOLO PER TESTING: Aggiungi celle pickup mock all'inizializzazione
+    _initializeMockPickupCells();
+  }
+  
+  /// Factory constructor per singleton
+  factory CellRepositoryMock() {
+    _instance ??= CellRepositoryMock._internal();
+    return _instance!;
+  }
+  
+  /// ⚠️ SOLO PER TESTING: Inizializza celle pickup mock
+  void _initializeMockPickupCells() {
+    final now = DateTime.now();
+    
+    // Aggiungi due celle pickup mock
+    _mockActiveCells.addAll([
+      ActiveCell(
+        id: 'pickup-mock-001',
+        lockerId: 'comm-pickup-001',
+        lockerName: 'Centro Commerciale',
+        lockerType: 'Commerciali',
+        cellNumber: 'Cella 5',
+        cellId: 'cell-pickup-mock-001',
+        startTime: now.subtract(const Duration(hours: 2)),
+        endTime: now.add(const Duration(days: 2)),
+        type: CellUsageType.pickup,
+      ),
+      ActiveCell(
+        id: 'pickup-mock-002',
+        lockerId: 'comm-pickup-002',
+        lockerName: 'Stazione FS',
+        lockerType: 'Commerciali',
+        cellNumber: 'Cella 12',
+        cellId: 'cell-pickup-mock-002',
+        startTime: now.subtract(const Duration(hours: 5)),
+        endTime: now.add(const Duration(days: 1)),
+        type: CellUsageType.pickup,
+      ),
+    ]);
+  }
   
   @override
   Future<List<ActiveCell>> getActiveCells() async {
@@ -42,7 +92,7 @@ class CellRepositoryMock implements CellRepository {
   
   @override
   Future<void> notifyCellClosed(String cellId) async {
-    // TODO: Quando il backend sarà pronto, sostituire con:
+    // TODO BACKEND: Quando il backend sarà pronto, sostituire con:
     // final response = await apiClient.post(
     //   ApiConfig.closeCellEndpoint,
     //   {'cell_id': cellId, 'door_closed': true},
@@ -53,13 +103,23 @@ class CellRepositoryMock implements CellRepository {
     
     await Future.delayed(_apiDelay);
     
-    // Rimuove la cella dalla lista mock
-    _mockActiveCells.removeWhere((cell) => cell.cellId == cellId);
+    // ⚠️ SOLO PER TESTING: Sposta la cella dall'attive allo storico
+    final cellIndex = _mockActiveCells.indexWhere((cell) => cell.cellId == cellId);
+    if (cellIndex != -1) {
+      final completedCell = _mockActiveCells[cellIndex];
+      _mockActiveCells.removeAt(cellIndex);
+      // Aggiungi allo storico
+      _mockHistory.insert(0, completedCell); // Aggiungi all'inizio (più recente)
+      // Limita lo storico a 100 elementi
+      if (_mockHistory.length > 100) {
+        _mockHistory.removeRange(100, _mockHistory.length);
+      }
+    }
   }
   
   @override
   Future<List<ActiveCell>> getHistory({int page = 1, int limit = 20}) async {
-    // TODO: Quando il backend sarà pronto, sostituire con:
+    // TODO BACKEND: Quando il backend sarà pronto, sostituire con:
     // final response = await apiClient.get(
     //   '${ApiConfig.historyEndpoint}?page=$page&limit=$limit',
     // );
@@ -68,7 +128,17 @@ class CellRepositoryMock implements CellRepository {
     //     .toList();
     
     await Future.delayed(_apiDelay);
-    return []; // Mock: lista vuota per ora
+    
+    // ⚠️ SOLO PER TESTING: Restituisce lo storico mock
+    final startIndex = (page - 1) * limit;
+    final endIndex = startIndex + limit;
+    if (startIndex >= _mockHistory.length) {
+      return [];
+    }
+    return _mockHistory.sublist(
+      startIndex,
+      endIndex > _mockHistory.length ? _mockHistory.length : endIndex,
+    );
   }
   
   @override
@@ -106,6 +176,15 @@ class CellRepositoryMock implements CellRepository {
   // Metodo helper per aggiungere celle mock (solo per testing)
   void addMockCell(ActiveCell cell) {
     _mockActiveCells.add(cell);
+  }
+  
+  /// ⚠️ SOLO PER TESTING: Aggiunge una cella attiva quando viene aperta
+  /// IN PRODUZIONE: Il backend aggiungerà automaticamente quando viene aperta una cella
+  void addActiveCell(ActiveCell cell) {
+    // Verifica che non esista già una cella con lo stesso cellId
+    if (!_mockActiveCells.any((c) => c.cellId == cell.cellId)) {
+      _mockActiveCells.add(cell);
+    }
   }
 }
 

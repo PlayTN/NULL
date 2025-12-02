@@ -1,9 +1,10 @@
 /// Modello per una cella attiva
 /// 
 /// Questo modello rappresenta una cella che l'utente sta attualmente utilizzando.
-/// Può essere di due tipi:
+/// Può essere di tre tipi:
 /// - deposited: L'utente ha depositato qualcosa nella cella
 /// - borrowed: L'utente ha preso qualcosa in prestito dalla cella
+/// - pickup: L'utente ha un ordine da ritirare da un negozio locale
 class ActiveCell {
   final String id;
   final String lockerId;
@@ -105,5 +106,6 @@ class ActiveCell {
 enum CellUsageType {
   deposited, // L'utente ha depositato qualcosa
   borrowed, // L'utente ha preso qualcosa in prestito
+  pickup, // L'utente ha un ordine da ritirare da un negozio locale
 }
 

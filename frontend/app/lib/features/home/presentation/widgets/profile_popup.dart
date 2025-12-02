@@ -11,6 +11,7 @@ class ProfilePopup extends StatelessWidget {
   final VoidCallback? onLogoutTap;
   final VoidCallback? onHistoryTap;
   final VoidCallback? onActiveReservationsTap;
+  final VoidCallback? onReportsTap;
   final VoidCallback? onHelpTap;
   final VoidCallback? onDonateTap;
   final String? userName;
@@ -25,6 +26,7 @@ class ProfilePopup extends StatelessWidget {
     this.onLogoutTap,
     this.onHistoryTap,
     this.onActiveReservationsTap,
+    this.onReportsTap,
     this.onHelpTap,
     this.onDonateTap,
     this.userName,
@@ -120,6 +122,13 @@ class ProfilePopup extends StatelessWidget {
                   icon: CupertinoIcons.lock,
                   title: 'Celle attive',
                   onTap: onActiveReservationsTap,
+                ),
+                _buildMenuItem(
+                  context: context,
+                  isDark: isDark,
+                  icon: CupertinoIcons.exclamationmark_triangle,
+                  title: 'Segnalazioni',
+                  onTap: onReportsTap,
                 ),
                 _buildMenuItem(
                   context: context,
