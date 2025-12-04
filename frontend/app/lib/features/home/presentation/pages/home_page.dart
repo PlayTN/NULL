@@ -320,7 +320,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
       case 1:
         return _buildMapView();
       case 2:
-        return SettingsPage(themeManager: widget.themeManager);
+        return SettingsPage(
+          themeManager: widget.themeManager,
+          isAuthenticated: _isAuthenticated,
+          onAuthenticationChanged: (isAuthenticated) {
+            setState(() {
+              _isAuthenticated = isAuthenticated;
+            });
+          },
+        );
       default:
         return _buildMapView();
     }

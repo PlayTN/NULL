@@ -17,6 +17,7 @@ dependencies:
   flutter_blue_plus: ^1.32.8
   flutter_local_notifications: ^17.2.2
   timezone: ^0.9.4
+  url_launcher: ^6.3.1
 
   cupertino_icons: ^1.0.8
 
