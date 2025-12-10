@@ -1,0 +1,41 @@
+IMPLEMENTA SEZIONE 3: Gestione Locker Backend NULL
+
+Contesto: Gestione locker per NULL (Ecosistema Smart Locker Modulari per Smart City - Comune di Trento). Frontend Flutter si aspetta lista locker, dettaglio, celle, statistiche con posizione, tipo, disponibilità. RF2: Mappa postazioni con filtri tipologia, disponibilità tempo reale, stato online/offline. Tipologie locker: sportivi, personali, petFriendly, commerciali, cicloturistici.
+
+Obiettivo: Implementare gestione locker completa - modelli Locker e Cell, CRUD GET, endpoint lista/dettaglio/celle/stats, calcolo disponibilità tempo reale, filtri tipologia.
+
+Stack: Mongoose (già installato), ES6 modules.
+
+Struttura da creare:
+backend/src/
+├── models/Locker.js (Schema MongoDB locker - collezione "locker")
+├── models/Cell.js (Schema MongoDB cella - collezione "cella")
+├── routes/lockers.js (Route locker)
+└── controllers/lockerController.js (Logica business)
+
+Requisiti dettagliati:
+
+1. src/models/Locker.js: Schema Mongoose collezione "locker" con lockerId (unique indexed) formato "LCK-001", nome (required), coordinate {lat:Number, lng:Number} (required), stato enum ["attivo","manutenzione","disattivo"] default "attivo", dimensione enum ["small","medium","large"] default "medium", operatoreCreatoreId (opz), dataCreazione Date default now. Metodi: toJSON() formatta per frontend, isActive getter (stato==="attivo"), getTotalCells() statico conta celle, getAvailableCells() statico conta celle "libera". Index: lockerId unique, coordinate 2dsphere (futuro geospaziale RF2). RF2: Supporto stato online/offline, manutenzione con date ripristino.
+
+2. src/models/Cell.js: Schema Mongoose collezione "cella" con cellaId (unique indexed) formato "CEL-001-1", lockerId (required indexed), categoria (opz) es. "attrezzi sportivi", richiede_foto boolean default false, stato enum ["libera","occupata","manutenzione"] default "libera", costo number default 0, grandezza enum ["piccola","media","grande","extra_large"] default "media", tipo enum ["ordini","deposito","prestito"] default "deposito", peso number default 0 (kg), fotoUrl (opz), operatoreCreatoreId (opz), dataCreazione Date default now. Metodi: isAvailable() getter (stato==="libera"), toJSON() formatta per frontend. Index: cellaId unique, lockerId indexed. RF3/RF4: Supporto apertura/chiusura vano.
+
+3. src/controllers/lockerController.js: getAllLockers(req,res,next) query opz ?type=sportivi|personali|petFriendly|commerciali|cicloturistici, trova locker con stato "attivo" o "manutenzione", per ogni locker calcola totalCells (count celle per lockerId), availableCells (count celle stato "libera"), determina type da dimensione o configurazione (mapping: small/medium→personali, large→sportivi, o da campo tipo se presente), aggiungi description opzionale, ritorna array formattato {id:lockerId, name:nome, position:{lat,lng}, type:LockerType, totalCells, availableCells, isActive:stato==="attivo", description, availabilityPercentage}. RF2: Include stato online/offline, date manutenzione se presente. getLockerById(req,res,next) parametro :id (lockerId), trova locker, se non trovato 404, calcola totalCells/availableCells, ritorna locker completo formattato. getLockerCells(req,res,next) parametro :id, query opz ?type=deposit|borrow|pickup, trova celle per lockerId, per ogni cella mappa cellaId→id, grandezza→size (piccola→small, media→medium, grande→large, extra_large→extraLarge), tipo→type (ordini→pickup, deposito→deposit, prestito→borrow), calcola cellNumber da cellaId (es. "CEL-001-1"→"Cella 1"), isAvailable da stato==="libera", pricePerHour/pricePerDay da tariffa grandezza (piccola:0.5€/h 5€/d, media:1€/h 10€/d, grande:2€/h 20€/d, extra_large:3€/h 30€/d) o usa campo costo se presente, aggiungi itemName/Description/ImageUrl da categoria se tipo borrow/pickup, ritorna array celle formattate. getLockerCellStats(req,res,next) parametro :id, aggrega celle per tipo/stato, calcola totalCells, availableBorrowCells (tipo "prestito" + stato "libera"), availableDepositCells (tipo "deposito" + stato "libera"), availablePickupCells (tipo "ordini" + stato "libera"), totalAvailable, ritorna stats {totalCells, availableBorrowCells, availableDepositCells, availablePickupCells, totalAvailable}. RF2: Calcolo disponibilità tempo reale.
+
+4. src/routes/lockers.js: GET /api/v1/lockers query ?type=sportivi|personali|petFriendly|commerciali|cicloturistici (opz), controller getAllLockers. GET /api/v1/lockers/:id parametro :id (lockerId), controller getLockerById. GET /api/v1/lockers/:id/cells parametro :id, query ?type=deposit|borrow|pickup (opz), controller getLockerCells. GET /api/v1/lockers/:id/cells/stats parametro :id, controller getLockerCellStats. Autenticazione opzionale (pubblica per RF2 mappa postazioni).
+
+5. src/server.js: Importa lockerRoutes, monta app.use('/api/v1/lockers', lockerRoutes).
+
+Mapping Locker DB→Frontend: lockerId→id, nome→name, coordinate→position {lat,lng}, stato==="attivo"→isActive, dimensione→type (mapping o campo tipo), calcola totalCells/availableCells, description opz. Tipologie: sportivi (parchi attrezzature), personali (storage effetti), petFriendly (aree cani), commerciali (ritiro prodotti), cicloturistici (piste ciclabili).
+
+Mapping Cell DB→Frontend: cellaId→id, calcola cellNumber da cellaId, tipo→type (ordini→pickup, deposito→deposit, prestito→borrow), grandezza→size (piccola→small, media→medium, grande→large, extra_large→extraLarge), stato==="libera"→isAvailable, calcola pricePerHour/Day da tariffa, categoria→itemName/Description se tipo borrow/pickup, fotoUrl→itemImageUrl.
+
+Tariffe: piccola 0.5€/h 5€/d, media 1€/h 10€/d, grande 2€/h 20€/d, extra_large 3€/h 30€/d. Storage lockers a tariffa oraria (RF modalità guadagno). Oppure usa campo costo se presente nel DB.
+
+Errori: NotFoundError(404) locker non trovato, ValidationError(400) query invalidi.
+
+Testing: Testa lista locker, lista filtrata tipo (sportivi/personali/commerciali), dettaglio locker, celle locker, celle filtrate tipo (deposit/borrow/pickup), statistiche celle. RF2: Verifica disponibilità tempo reale.
+
+Note: Coordinate oggetto {lat,lng}, calcolo celle tempo reale (no cache per RF2), mapping tipo adatta a DB reale, indexing per performance (RNF1 prestazioni), formatta risposte per match frontend, supporto filtri RF2 (tipologia, distanza, orari). RNF1: Operazioni critiche <2 secondi 95% casi.
+
+Output: Modelli Locker/Cell funzionanti (collezioni "locker"/"cella"), endpoint lista/dettaglio/celle/stats, mapping DB→Frontend, calcolo disponibilità tempo reale, filtri tipologia, supporto 5 tipologie locker, compliance RF2.
+

@@ -1,0 +1,43 @@
+import express from 'express';
+import {
+  getAllLockers,
+  getLockerById,
+  getLockerCells,
+  getLockerCellStats,
+} from '../controllers/lockerController.js';
+
+const router = express.Router();
+
+/**
+ * GET /api/v1/lockers
+ * Lista tutti i locker con filtri opzionali
+ * Query params: ?type=sportivi|personali|petFriendly|commerciali|cicloturistici
+ * RF2: Pubblica per mappa postazioni
+ */
+router.get('/', getAllLockers);
+
+/**
+ * GET /api/v1/lockers/:id
+ * Dettaglio locker
+ * Parametro: :id (lockerId)
+ */
+router.get('/:id', getLockerById);
+
+/**
+ * GET /api/v1/lockers/:id/cells
+ * Lista celle di un locker con filtri opzionali
+ * Parametro: :id (lockerId)
+ * Query params: ?type=deposit|borrow|pickup
+ */
+router.get('/:id/cells', getLockerCells);
+
+/**
+ * GET /api/v1/lockers/:id/cells/stats
+ * Statistiche celle per locker
+ * Parametro: :id (lockerId)
+ * RF2: Calcolo disponibilità tempo reale
+ */
+router.get('/:id/cells/stats', getLockerCellStats);
+
+export default router;
+

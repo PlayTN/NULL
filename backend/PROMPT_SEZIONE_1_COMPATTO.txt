@@ -1,0 +1,67 @@
+IMPLEMENTA SEZIONE 1: Setup Base Backend NULL
+
+Contesto: Backend Node.js per sistema smart locker NULL. Frontend Flutter già sviluppato, si aspetta API REST su https://api.null.app/api/v1/*
+
+Obiettivo: Configurare infrastruttura base - Express, MongoDB, TLS, struttura progetto, error handling, health check.
+
+Stack: Node.js v18+, Express v4.18+, Mongoose v7+, dotenv, helmet, cors, winston (opzionale), ES6 modules.
+
+Struttura da creare:
+backend/
+├── src/
+│   ├── config/
+│   │   ├── database.js (connessione MongoDB con Mongoose)
+│   │   ├── tls.js (configurazione TLS/HTTPS)
+│   │   └── env.js (validazione variabili ambiente)
+│   ├── middleware/
+│   │   ├── errorHandler.js (gestione errori centralizzata JSON)
+│   │   └── notFound.js (404 handler)
+│   ├── routes/
+│   │   └── health.js (GET /health e /api/v1/health)
+│   ├── utils/
+│   │   └── logger.js (Winston logger opzionale)
+│   └── server.js (entry point con Express, CORS, helmet, MongoDB connect)
+├── certificates/ (cartella certificati TLS, con README)
+├── uploads/ (cartella upload)
+├── .env.example (template variabili)
+├── .gitignore
+├── package.json (ES6 modules, scripts start/dev)
+└── README.md (documentazione setup)
+
+Requisiti dettagliati:
+
+1. package.json: type "module", scripts start/dev, dipendenze express, mongoose, dotenv, helmet, cors, winston
+
+2. .env.example: NODE_ENV, PORT, HTTPS_PORT, MONGODB_URI, TLS_ENABLED, TLS_KEY_PATH, TLS_CERT_PATH, API_VERSION, CORS_ORIGIN, LOG_LEVEL
+
+3. src/config/env.js: Carica dotenv, valida variabili obbligatorie, default per sviluppo, esporta config object
+
+4. src/config/database.js: Connessione Mongoose, gestione eventi (connected/error/disconnected), opzioni useNewUrlParser/useUnifiedTopology, esporta connectDB() e disconnectDB()
+
+5. src/config/tls.js: Carica certificati se TLS_ENABLED=true, gestisci errori, esporta tlsOptions {key, cert}
+
+6. src/utils/logger.js: Winston con livelli error/warn/info/debug, formato timestamp+livello+messaggio, colori console
+
+7. src/middleware/errorHandler.js: Catch errori Express, risposta JSON standard {success: false, error: {message, code, statusCode}}, gestisci ValidationError(400), Unauthorized(401), NotFound(404), Generic(500), log stack in dev
+
+8. src/middleware/notFound.js: Risposta JSON 404 {success: false, error: {message: "Route not found", code: "NOT_FOUND", statusCode: 404}}
+
+9. src/routes/health.js: GET /health e /api/v1/health, risposta {success: true, status: "ok", timestamp, uptime, database: "connected", version: "1.0.0"}, verifica MongoDB
+
+10. src/server.js: Crea app Express, middleware helmet/cors/express.json/urlencoded, connetti MongoDB, monta route health, middleware notFound, middleware errorHandler, avvia HTTPS se TLS o HTTP, graceful shutdown (SIGTERM/SIGINT), log avvio
+
+CORS: Origins da CORS_ORIGIN (split), methods GET/POST/PUT/DELETE/PATCH/OPTIONS, headers Content-Type/Authorization, credentials true
+
+.gitignore: node_modules, .env, certificates/*.pem, uploads/, *.log
+
+README.md: Descrizione, requisiti, installazione (npm install, cp .env.example .env, npm start), struttura, variabili env, health check, note TLS
+
+Certificati: certificates/README.md con istruzioni self-signed (openssl) e produzione
+
+Testing: Verifica server avvia, health check risponde JSON, MongoDB connesso, CORS funziona, 404 handler, TLS se abilitato
+
+Note: ES6 modules (import/export), gestione errori elegante, logging completo, codice pulito commentato, best practices Node.js/Express
+
+Output: Server Express funzionante, MongoDB connesso, health check attivo, TLS configurato, error handling, CORS, struttura organizzata, documentazione.
+
+

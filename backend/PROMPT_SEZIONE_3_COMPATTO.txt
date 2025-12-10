@@ -1,0 +1,39 @@
+IMPLEMENTA SEZIONE 3: Gestione Locker Backend NULL
+
+Contesto: Gestione locker per NULL. Frontend Flutter si aspetta lista locker, dettaglio, celle, statistiche con posizione, tipo, disponibilità.
+
+Obiettivo: Implementare gestione locker completa - modelli Locker e Cell, CRUD GET, endpoint lista/dettaglio/celle/stats, calcolo disponibilità.
+
+Stack: Mongoose (già installato), ES6 modules.
+
+Struttura da creare:
+backend/src/
+├── models/Locker.js (Schema MongoDB locker)
+├── models/Cell.js (Schema MongoDB cella)
+├── routes/lockers.js (Route locker)
+└── controllers/lockerController.js (Logica business)
+
+Requisiti dettagliati:
+
+1. src/models/Locker.js: Schema Mongoose con lockerId (unique), nome (required), coordinate {lat, lng} (required), stato enum ["attivo","manutenzione","disattivo"] default "attivo", dimensione enum ["small","medium","large"] default "medium", operatoreCreatoreId (opz), dataCreazione Date default now. Metodi: toJSON() formatta coordinate, isActive getter, getTotalCells() statico, getAvailableCells() statico. Index: lockerId unique, coordinate 2dsphere (futuro geospaziale).
+
+2. src/models/Cell.js: Schema Mongoose con cellaId (unique), lockerId (required indexed), categoria (opz), richiede_foto boolean default false, stato enum ["libera","occupata","manutenzione"] default "libera", costo number default 0, grandezza enum ["piccola","media","grande","extra_large"] default "media", tipo enum ["ordini","deposito","prestito"] default "deposito", peso number default 0, fotoUrl (opz), operatoreCreatoreId (opz), dataCreazione Date default now. Metodi: isAvailable() getter, toJSON() formatta per frontend. Index: cellaId unique, lockerId indexed.
+
+3. src/controllers/lockerController.js: getAllLockers(req,res,next) query opz ?type=personali|sportivi|commerciali, trova locker attivi, per ogni locker calcola totalCells (count celle), availableCells (count celle "libera"), determina type da dimensione (small/medium→personali, large→sportivi), aggiungi description, ritorna array formattato {id, name, position {lat,lng}, type, totalCells, availableCells, isActive, description, availabilityPercentage}. getLockerById(req,res,next) parametro :id lockerId, trova locker, se non trovato 404, calcola totalCells/availableCells, ritorna locker completo. getLockerCells(req,res,next) parametro :id, query opz ?type=deposit|borrow|pickup, trova celle per lockerId, per ogni cella mappa cellaId→id, grandezza→size (piccola→small, media→medium, grande→large, extra_large→extraLarge), tipo→type (ordini→pickup, deposito→deposit, prestito→borrow), calcola cellNumber da cellaId, isAvailable da stato, pricePerHour/pricePerDay da tariffa grandezza (piccola:0.5€/h 5€/d, media:1€/h 10€/d, grande:2€/h 20€/d, extra_large:3€/h 30€/d), aggiungi itemName/Description/ImageUrl da categoria, ritorna array celle formattate. getLockerCellStats(req,res,next) parametro :id, aggrega celle per tipo/stato, calcola totalCells, availableBorrowCells (prestito+libera), availableDepositCells (deposito+libera), availablePickupCells (ordini+libera), totalAvailable, ritorna stats.
+
+4. src/routes/lockers.js: GET /api/v1/lockers query ?type= (opz), controller getAllLockers. GET /api/v1/lockers/:id parametro :id, controller getLockerById. GET /api/v1/lockers/:id/cells parametro :id, query ?type= (opz), controller getLockerCells. GET /api/v1/lockers/:id/cells/stats parametro :id, controller getLockerCellStats. Autenticazione opzionale (pubblica per ora).
+
+5. src/server.js: Importa lockerRoutes, monta app.use('/api/v1/lockers', lockerRoutes).
+
+Mapping: Locker DB→Frontend: lockerId→id, nome→name, coordinate→position, stato→isActive, dimensione→type (mapping), calcola totalCells/availableCells, description opz. Cell DB→Frontend: cellaId→id, calcola cellNumber, tipo→type (mapping), grandezza→size (mapping), stato→isAvailable, calcola pricePerHour/Day, categoria→itemName/Description.
+
+Tariffe: piccola 0.5€/h 5€/d, media 1€/h 10€/d, grande 2€/h 20€/d, extra_large 3€/h 30€/d. Oppure usa campo costo se presente.
+
+Errori: NotFoundError(404) locker non trovato, ValidationError(400) query invalidi.
+
+Testing: Testa lista locker, lista filtrata tipo, dettaglio locker, celle locker, celle filtrate tipo, statistiche celle.
+
+Note: Coordinate oggetto {lat,lng}, calcolo celle tempo reale (no cache), mapping tipo adatta a DB reale, indexing per performance, formatta risposte per match frontend.
+
+Output: Modelli Locker/Cell funzionanti, endpoint lista/dettaglio/celle/stats, mapping DB→Frontend, calcolo disponibilità tempo reale.
+
