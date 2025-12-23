@@ -12,5 +12,26 @@ enum LockerType {
   final IconData icon;
 
   const LockerType(this.label, this.icon);
+
+  /// Converte una stringa del backend in LockerType
+  static LockerType? fromString(String? value) {
+    if (value == null) return null;
+    
+    switch (value.toLowerCase()) {
+      case 'sportivi':
+        return LockerType.sportivi;
+      case 'personali':
+        return LockerType.personali;
+      case 'petfriendly':
+      case 'pet-friendly':
+        return LockerType.petFriendly;
+      case 'commerciali':
+        return LockerType.commerciali;
+      case 'cicloturistici':
+        return LockerType.cicloturistici;
+      default:
+        return null;
+    }
+  }
 }
 

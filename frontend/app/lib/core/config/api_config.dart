@@ -5,8 +5,7 @@
 /// - apiVersion: Versione dell'API (es. 'v1')
 /// - timeout: Timeout per le richieste HTTP
 class ApiConfig {
-  // TODO: Configurare quando il backend sarà pronto
-  static const String baseUrl = 'https://api.null.app'; // URL del backend
+  static const String baseUrl = 'https://serverurbanlock.onrender.com'; // URL del backend live (Render)
   static const String apiVersion = 'v1';
   static const Duration timeout = Duration(seconds: 30);
   

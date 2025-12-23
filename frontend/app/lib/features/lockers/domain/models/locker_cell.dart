@@ -34,52 +34,31 @@ class LockerCell {
     this.borrowDuration, // Durata predefinita per il prestito (es. 7 giorni)
   });
 
-  /// Crea un'istanza da JSON (per quando il backend sarà pronto)
-  /// 
-  /// **TODO**: Implementare quando il backend fornirà i dati in formato JSON
-  /// ```dart
-  /// factory LockerCell.fromJson(Map<String, dynamic> json) {
-  ///   return LockerCell(
-  ///     id: json['id'],
-  ///     cellNumber: json['cell_number'],
-  ///     type: CellType.values.firstWhere(
-  ///       (e) => e.toString() == json['type'],
-  ///       orElse: () => CellType.deposit,
-  ///     ),
-  ///     isAvailable: json['is_available'],
-  ///     itemName: json['item_name'],
-  ///     itemDescription: json['item_description'],
-  ///     itemImageUrl: json['item_image_url'],
-  ///     pricePerHour: json['price_per_hour']?.toDouble(),
-  ///     pricePerDay: json['price_per_day']?.toDouble(),
-  ///     storeName: json['store_name'],
-  ///     availableUntil: json['available_until'] != null 
-  ///         ? DateTime.parse(json['available_until']) 
-  ///         : null,
-  ///   );
-  /// }
-  /// ```
-  
-  /// Converte l'istanza in JSON (per quando invieremo dati al backend)
-  /// 
-  /// **TODO**: Implementare quando invieremo dati al backend
-  /// ```dart
-  /// Map<String, dynamic> toJson() {
-  ///   return {
-  ///     'id': id,
-  ///     'cell_number': cellNumber,
-  ///     'type': type.toString(),
-  ///     'is_available': isAvailable,
-  ///     'item_name': itemName,
-  ///     'item_description': itemDescription,
-  ///     'item_image_url': itemImageUrl,
-  ///     'price_per_hour': pricePerHour,
-  ///     'price_per_day': pricePerDay,
-  ///     'store_name': storeName,
-  ///     'available_until': availableUntil?.toIso8601String(),
-  ///   };
-  /// }
-  /// ```
+  /// Crea un'istanza da JSON (risposta backend)
+  factory LockerCell.fromJson(Map<String, dynamic> json) {
+    final typeString = json['type'] as String?;
+    final type = CellType.fromString(typeString) ?? CellType.deposit;
+
+    final sizeString = json['size'] as String?;
+    final size = CellSize.fromString(sizeString) ?? CellSize.medium;
+
+    return LockerCell(
+      id: json['id'] as String,
+      cellNumber: json['cellNumber'] as String? ?? json['cell_number'] as String? ?? '',
+      type: type,
+      size: size,
+      isAvailable: json['isAvailable'] as bool? ?? json['is_available'] as bool? ?? false,
+      pricePerHour: (json['pricePerHour'] as num?)?.toDouble() ?? 0.0,
+      pricePerDay: (json['pricePerDay'] as num?)?.toDouble() ?? 0.0,
+      itemName: json['itemName'] as String?,
+      itemDescription: json['itemDescription'] as String?,
+      itemImageUrl: json['itemImageUrl'] as String?,
+      storeName: json['storeName'] as String?,
+      availableUntil: json['availableUntil'] != null
+          ? DateTime.tryParse(json['availableUntil'] as String)
+          : null,
+    );
+  }
 }
 
 /// Statistiche delle celle disponibili per tipo in un locker
@@ -97,5 +76,17 @@ class LockerCellStats {
   });
 
   int get totalAvailable => availableBorrowCells + availableDepositCells + availablePickupCells;
+
+  /// Crea un'istanza da JSON (risposta backend)
+  factory LockerCellStats.fromJson(Map<String, dynamic> json) {
+    final stats = json['stats'] as Map<String, dynamic>? ?? json;
+    
+    return LockerCellStats(
+      totalCells: stats['totalCells'] as int? ?? 0,
+      availableBorrowCells: stats['availableBorrowCells'] as int? ?? 0,
+      availableDepositCells: stats['availableDepositCells'] as int? ?? 0,
+      availablePickupCells: stats['availablePickupCells'] as int? ?? 0,
+    );
+  }
 }
 

@@ -1,84 +1,143 @@
+import 'package:app/core/api/api_client.dart';
+import 'package:app/core/api/api_exception.dart';
 import 'package:app/features/lockers/domain/models/locker.dart';
 import 'package:app/features/lockers/domain/models/locker_type.dart';
 import 'package:app/features/lockers/domain/models/locker_cell.dart';
 import 'package:app/features/lockers/domain/repositories/locker_repository.dart';
 
-/// Implementazione reale del repository (da usare quando il backend sarà pronto)
-/// 
-/// Esempio di come implementare le chiamate HTTP reali:
-/// 
-/// ```dart
-/// class LockerRepositoryImpl implements LockerRepository {
-///   final String baseUrl = 'https://api.null.app';
-///   final http.Client _client;
-/// 
-///   LockerRepositoryImpl({http.Client? client}) 
-///       : _client = client ?? http.Client();
-/// 
-///   @override
-///   Future<List<Locker>> getLockers() async {
-///     final response = await _client.get(
-///       Uri.parse('$baseUrl/api/lockers'),
-///       headers: {'Authorization': 'Bearer $token'},
-///     );
-///     
-///     if (response.statusCode == 200) {
-///       final data = jsonDecode(response.body);
-///       return (data['lockers'] as List)
-///           .map((json) => Locker.fromJson(json))
-///           .toList();
-///     } else {
-///       throw Exception('Failed to load lockers');
-///     }
-///   }
-/// 
-///   // ... altri metodi
-/// }
-/// ```
+/// Implementazione reale del repository con chiamate HTTP al backend
 class LockerRepositoryImpl implements LockerRepository {
-  // TODO: Implementare quando il backend sarà pronto
-  // Per ora lancia un'eccezione per indicare che non è ancora implementato
-  
-  @override
-  Future<List<Locker>> getLockers() {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  final ApiClient _apiClient;
+
+  LockerRepositoryImpl({required ApiClient apiClient}) : _apiClient = apiClient;
+
+  /// Converte LockerType enum in stringa per il backend
+  String _lockerTypeToString(LockerType type) {
+    switch (type) {
+      case LockerType.sportivi:
+        return 'sportivi';
+      case LockerType.personali:
+        return 'personali';
+      case LockerType.petFriendly:
+        return 'petFriendly';
+      case LockerType.commerciali:
+        return 'commerciali';
+      case LockerType.cicloturistici:
+        return 'cicloturistici';
+    }
   }
 
   @override
-  Future<List<Locker>> getLockersByType(LockerType type) {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  Future<List<Locker>> getLockers() async {
+    try {
+      final response = await _apiClient.get(
+        '/lockers',
+        requireAuth: false,
+      );
+
+      final lockersList = response['lockers'] as List<dynamic>;
+      return lockersList
+          .map((json) => Locker.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on ApiException catch (e) {
+      throw Exception('Errore nel caricamento lockers: ${e.message}');
+    }
   }
 
   @override
-  Future<Locker?> getLockerById(String id) {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  Future<List<Locker>> getLockersByType(LockerType type) async {
+    try {
+      final typeString = _lockerTypeToString(type);
+      final response = await _apiClient.get(
+        '/lockers',
+        queryParameters: {'type': typeString},
+        requireAuth: false,
+      );
+
+      final lockersList = response['lockers'] as List<dynamic>;
+      return lockersList
+          .map((json) => Locker.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on ApiException catch (e) {
+      throw Exception('Errore nel caricamento lockers per tipo: ${e.message}');
+    }
   }
 
   @override
-  Future<List<Locker>> searchLockers(String query) {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  Future<Locker?> getLockerById(String id) async {
+    try {
+      final response = await _apiClient.get(
+        '/lockers/$id',
+        requireAuth: false,
+      );
+
+      final lockerJson = response['locker'] as Map<String, dynamic>;
+      return Locker.fromJson(lockerJson);
+    } on ApiException catch (e) {
+      if (e.isNotFound()) {
+        return null;
+      }
+      throw Exception('Errore nel caricamento locker: ${e.message}');
+    }
   }
 
   @override
-  Future<List<LockerCell>> getLockerCells(String lockerId) {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  Future<List<Locker>> searchLockers(String query) async {
+    // Il backend non ha endpoint di ricerca, quindi carichiamo tutti i lockers
+    // e filtriamo lato client
+    if (query.isEmpty) {
+      return getLockers();
+    }
+
+    try {
+      final allLockers = await getLockers();
+      final lowerQuery = query.toLowerCase();
+      
+      return allLockers.where((locker) {
+        final nameMatch = locker.name.toLowerCase().contains(lowerQuery);
+        final descMatch = locker.description?.toLowerCase().contains(lowerQuery) ?? false;
+        return nameMatch || descMatch;
+      }).toList();
+    } catch (e) {
+      throw Exception('Errore nella ricerca lockers: $e');
+    }
   }
 
   @override
-  Future<LockerCellStats> getLockerCellStats(String lockerId) {
-    throw UnimplementedError(
-      'Backend non ancora disponibile. Usa LockerRepositoryMock per i test.',
-    );
+  Future<List<LockerCell>> getLockerCells(String lockerId) async {
+    try {
+      final response = await _apiClient.get(
+        '/lockers/$lockerId/cells',
+        requireAuth: false,
+      );
+
+      final cellsList = response['cells'] as List<dynamic>;
+      return cellsList
+          .map((json) => LockerCell.fromJson(json as Map<String, dynamic>))
+          .toList();
+    } on ApiException catch (e) {
+      if (e.isNotFound()) {
+        throw Exception('Locker non trovato: $lockerId');
+      }
+      throw Exception('Errore nel caricamento celle: ${e.message}');
+    }
+  }
+
+  @override
+  Future<LockerCellStats> getLockerCellStats(String lockerId) async {
+    try {
+      final response = await _apiClient.get(
+        '/lockers/$lockerId/cells/stats',
+        requireAuth: false,
+      );
+
+      return LockerCellStats.fromJson(response);
+    } on ApiException catch (e) {
+      if (e.isNotFound()) {
+        throw Exception('Locker non trovato: $lockerId');
+      }
+      throw Exception('Errore nel caricamento statistiche: ${e.message}');
+    }
   }
 }
 

@@ -1,10 +1,14 @@
 import 'package:flutter/cupertino.dart';
+import 'package:app/core/di/app_dependencies.dart';
 import 'package:app/core/theme/theme_manager.dart';
 import 'package:app/core/notifications/notification_service.dart';
 import 'package:app/features/home/presentation/pages/home_page.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Inizializza le dipendenze (API client, auth service, ecc.)
+  await AppDependencies.initialize();
   
   // Inizializza il servizio di notifiche
   await NotificationService().initialize();

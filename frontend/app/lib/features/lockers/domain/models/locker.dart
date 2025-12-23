@@ -41,6 +41,27 @@ class Locker {
   bool hasAvailableCells(CellType cellType) {
     return getCellsByType(cellType).isNotEmpty;
   }
+
+  /// Crea un'istanza da JSON (risposta backend)
+  factory Locker.fromJson(Map<String, dynamic> json) {
+    final position = json['position'] as Map<String, dynamic>;
+    final lat = (position['lat'] as num).toDouble();
+    final lng = (position['lng'] as num).toDouble();
+
+    final typeString = json['type'] as String?;
+    final type = LockerType.fromString(typeString) ?? LockerType.personali;
+
+    return Locker(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      position: LatLng(lat, lng),
+      type: type,
+      totalCells: json['totalCells'] as int? ?? 0,
+      availableCells: json['availableCells'] as int? ?? 0,
+      isActive: json['isActive'] as bool? ?? true,
+      description: json['description'] as String?,
+    );
+  }
 }
 
 

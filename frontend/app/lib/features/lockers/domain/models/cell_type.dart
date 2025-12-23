@@ -19,6 +19,25 @@ enum CellType {
   final String description;
 
   const CellType(this.label, this.icon, this.description);
+
+  /// Converte una stringa del backend in CellType
+  static CellType? fromString(String? value) {
+    if (value == null) return null;
+    
+    switch (value.toLowerCase()) {
+      case 'deposit':
+      case 'deposito':
+        return CellType.deposit;
+      case 'borrow':
+      case 'prestito':
+        return CellType.borrow;
+      case 'pickup':
+      case 'ordini':
+        return CellType.pickup;
+      default:
+        return null;
+    }
+  }
 }
 
 /// Dimensione della cella
@@ -32,5 +51,28 @@ enum CellSize {
   final String dimensions;
 
   const CellSize(this.label, this.dimensions);
+
+  /// Converte una stringa del backend in CellSize
+  static CellSize? fromString(String? value) {
+    if (value == null) return null;
+    
+    switch (value.toLowerCase()) {
+      case 'piccola':
+      case 'small':
+        return CellSize.small;
+      case 'media':
+      case 'medium':
+        return CellSize.medium;
+      case 'grande':
+      case 'large':
+        return CellSize.large;
+      case 'extra_large':
+      case 'extralarge':
+      case 'extra-large':
+        return CellSize.extraLarge;
+      default:
+        return CellSize.medium; // Default
+    }
+  }
 }
 
