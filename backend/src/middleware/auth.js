@@ -39,8 +39,18 @@ export async function authenticate(req, res, next) {
 
     // Se il token contiene ruolo 'operatore', cerca nella collezione Operatore
     if (decoded.ruolo === 'operatore') {
-      const operatore = await Operatore.findById(decoded._id);
+      // Il token contiene userId (generato da generateTokens) che è l'_id dell'operatore
+      const operatoreId = decoded.userId || decoded._id;
+      
+      if (!operatoreId) {
+        throw new UnauthorizedError('Token non valido: ID operatore mancante');
+      }
+
+      logger.debug(`Cerca operatore con ID: ${operatoreId}`);
+      
+      const operatore = await Operatore.findById(operatoreId);
       if (!operatore) {
+        logger.warn(`Operatore non trovato con ID: ${operatoreId}`);
         throw new UnauthorizedError('Operatore non trovato');
       }
 
