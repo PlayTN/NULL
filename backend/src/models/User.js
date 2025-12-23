@@ -6,7 +6,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     nome: {
       type: String,
@@ -22,7 +21,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
       uppercase: true,
       trim: true,
     },
@@ -79,8 +77,7 @@ const userSchema = new mongoose.Schema(
 );
 
 // Index per ricerca rapida
-userSchema.index({ utenteId: 1 });
-userSchema.index({ codiceFiscale: 1 });
+// utenteId e codiceFiscale hanno già index automatico da unique: true
 userSchema.index({ genitoreId: 1 }); // Index per ricerca account figli (RF1)
 
 // Metodo per rimuovere campi sensibili dalla serializzazione (GDPR RNF5)

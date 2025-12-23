@@ -6,7 +6,6 @@ const lockerSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     nome: {
       type: String,
@@ -27,7 +26,6 @@ const lockerSchema = new mongoose.Schema(
       type: String,
       enum: ['attivo', 'manutenzione', 'disattivo'],
       default: 'attivo',
-      index: true,
     },
     dimensione: {
       type: String,
@@ -71,7 +69,7 @@ const lockerSchema = new mongoose.Schema(
 );
 
 // Index per ricerca rapida
-lockerSchema.index({ lockerId: 1 });
+// lockerId ha già index automatico da unique: true
 lockerSchema.index({ stato: 1 });
 // RF2: Index geospaziale per ricerche per distanza (futuro)
 lockerSchema.index({ coordinate: '2dsphere' });
