@@ -78,6 +78,7 @@ const userSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
       default: null,
+      index: true,
       sparse: true, // Permette null ma mantiene index se presente
     },
   },
@@ -89,7 +90,7 @@ const userSchema = new mongoose.Schema(
 
 // Index per ricerca rapida
 // utenteId e codiceFiscale hanno già index automatico da unique: true
-userSchema.index({ genitoreId: 1 }); // Index per ricerca account figli (RF1)
+// genitoreId ha index definito direttamente nel campo (index: true, sparse: true)
 userSchema.index({ username: 1 }, { unique: true, sparse: true }); // Index per username operatori
 
 // Metodo per rimuovere campi sensibili dalla serializzazione (GDPR RNF5)

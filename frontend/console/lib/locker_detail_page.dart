@@ -344,8 +344,8 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
 
   Future<void> _updateCellStatus(LockerCell cell, bool skipDialog) async {
     final newStatus = !cell.isAvailable;
-    // Determina lo stato backend: se disponibile -> 'libera', altrimenti -> 'occupata'
-    final statoBackend = newStatus ? 'libera' : 'occupata';
+    // Determina lo stato backend: se disponibile -> 'libera', altrimenti -> 'manutenzione'
+    final statoBackend = newStatus ? 'libera' : 'manutenzione';
     
     try {
       // Aggiorna lo stato nel database

@@ -276,14 +276,14 @@ class LockerRepositoryApi implements LockerRepository {
     try {
       // Mappa lo stato frontend -> backend
       // isAvailable = true -> 'libera'
-      // isAvailable = false -> 'occupata' o 'manutenzione'
+      // isAvailable = false -> 'manutenzione'
       String statoBackend;
       if (stato == 'libera') {
         statoBackend = 'libera';
       } else if (stato == 'manutenzione') {
         statoBackend = 'manutenzione';
       } else {
-        statoBackend = 'occupata';
+        statoBackend = 'manutenzione'; // Default a 'manutenzione' quando si mette offline
       }
 
       final response = await ApiClient.put(

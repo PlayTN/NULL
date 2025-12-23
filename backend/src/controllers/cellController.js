@@ -79,7 +79,7 @@ export async function updateCell(req, res, next) {
       cellNumber,
       type: tipoMapping[cell.tipo] || 'deposit',
       size: grandezzaMapping[cell.grandezza] || 'medium',
-      isAvailable: cell.stato === 'libera',
+      isAvailable: cell.stato === 'libera', // Disponibile solo se 'libera'
       pricePerHour: cell.costo || 0,
       pricePerDay: (cell.costo || 0) * 10, // Stima
       grandezza: cell.grandezza,
