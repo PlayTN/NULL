@@ -6,12 +6,10 @@ const cellSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
-      index: true,
     },
     lockerId: {
       type: String,
       required: true,
-      index: true,
     },
     categoria: {
       type: String,
@@ -26,7 +24,6 @@ const cellSchema = new mongoose.Schema(
       type: String,
       enum: ['libera', 'occupata', 'manutenzione'],
       default: 'libera',
-      index: true,
     },
     costo: {
       type: Number,
@@ -41,7 +38,6 @@ const cellSchema = new mongoose.Schema(
       type: String,
       enum: ['ordini', 'deposito', 'prestito'],
       default: 'deposito',
-      index: true,
     },
     peso: {
       type: Number,
@@ -67,7 +63,7 @@ const cellSchema = new mongoose.Schema(
 );
 
 // Index per ricerca rapida
-cellSchema.index({ cellaId: 1 });
+// cellaId ha già index automatico da unique: true
 cellSchema.index({ lockerId: 1 });
 cellSchema.index({ stato: 1 });
 cellSchema.index({ tipo: 1 });
