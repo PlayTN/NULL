@@ -69,8 +69,24 @@ export async function createReport(req, res, next) {
     const { lockerId, cellaId, categoria, descrizione, photo } = req.body;
     const userId = req.user.userId;
 
-    // Converti userId (stringa) in ObjectId
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // utenteId può essere sia ObjectId che String (come "USR-001")
+    // Se userId è già un ObjectId valido, usalo; altrimenti cerca l'utente per utenteId
+    let utenteIdValue = userId;
+    
+    // Se userId è una stringa tipo "USR-001", cerca l'utente per utenteId
+    if (typeof userId === 'string' && !mongoose.Types.ObjectId.isValid(userId)) {
+      const user = await User.findOne({ utenteId: userId }).lean();
+      if (user) {
+        // Usa l'ObjectId dell'utente trovato
+        utenteIdValue = user._id;
+      } else {
+        // Se non trovato, usa la stringa direttamente (il modello accetta Mixed)
+        utenteIdValue = userId;
+      }
+    } else if (mongoose.Types.ObjectId.isValid(userId)) {
+      // Se è un ObjectId valido, usalo direttamente
+      utenteIdValue = new mongoose.Types.ObjectId(userId);
+    }
 
     // Validazione campi obbligatori
     if (!categoria) {
@@ -137,7 +153,7 @@ export async function createReport(req, res, next) {
     // Crea Segnalazione
     const segnalazione = new Segnalazione({
       segnalazioneId,
-      utenteId: userObjectId,
+      utenteId: utenteIdValue,
       lockerId: lockerId || null,
       cellaId: cellaId || null,
       categoria,
@@ -182,8 +198,23 @@ export async function getReports(req, res, next) {
     const userId = req.user.userId;
     const { page = 1, limit = 20, categoria, stato } = req.query;
 
-    // Converti userId (stringa) in ObjectId
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // utenteId può essere sia ObjectId che String (come "USR-001")
+    // Costruisci query che funziona con entrambi i tipi
+    let query;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      // Se è un ObjectId valido, cerca per _id
+      query = { utenteId: new mongoose.Types.ObjectId(userId) };
+    } else {
+      // Se è una stringa tipo "USR-001", cerca l'utente per utenteId
+      const user = await User.findOne({ utenteId: userId }).lean();
+      if (user) {
+        // Usa l'ObjectId dell'utente trovato
+        query = { utenteId: user._id };
+      } else {
+        // Se non trovato, cerca direttamente per stringa (il modello accetta Mixed)
+        query = { utenteId: userId };
+      }
+    }
 
     // Valida paginazione
     const pageNum = parseInt(page, 10);
@@ -196,11 +227,6 @@ export async function getReports(req, res, next) {
     if (limitNum < 1 || limitNum > 100) {
       throw new ValidationError('limit deve essere tra 1 e 100');
     }
-
-    // Costruisci query
-    const query = {
-      utenteId: userObjectId,
-    };
 
     // Filtro categoria
     if (categoria) {
@@ -288,13 +314,26 @@ export async function getReportById(req, res, next) {
     const userId = req.user.userId;
     const { id } = req.params;
 
-    // Converti userId (stringa) in ObjectId
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // utenteId può essere sia ObjectId che String (come "USR-001")
+    // Costruisci query che funziona con entrambi i tipi
+    let utenteIdQuery;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      utenteIdQuery = new mongoose.Types.ObjectId(userId);
+    } else {
+      // Se è una stringa tipo "USR-001", cerca l'utente per utenteId
+      const user = await User.findOne({ utenteId: userId }).lean();
+      if (user) {
+        utenteIdQuery = user._id;
+      } else {
+        // Se non trovato, cerca direttamente per stringa
+        utenteIdQuery = userId;
+      }
+    }
 
     // Trova Segnalazione per segnalazioneId e utenteId (verifica ownership)
     const segnalazione = await Segnalazione.findOne({
       segnalazioneId: id,
-      utenteId: userObjectId,
+      utenteId: utenteIdQuery,
     }).lean();
 
     if (!segnalazione) {
@@ -328,13 +367,26 @@ export async function updateReport(req, res, next) {
     const { id } = req.params;
     const { categoria, descrizione, photo } = req.body;
 
-    // Converti userId (stringa) in ObjectId
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // utenteId può essere sia ObjectId che String (come "USR-001")
+    // Costruisci query che funziona con entrambi i tipi
+    let utenteIdQuery;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      utenteIdQuery = new mongoose.Types.ObjectId(userId);
+    } else {
+      // Se è una stringa tipo "USR-001", cerca l'utente per utenteId
+      const user = await User.findOne({ utenteId: userId }).lean();
+      if (user) {
+        utenteIdQuery = user._id;
+      } else {
+        // Se non trovato, cerca direttamente per stringa
+        utenteIdQuery = userId;
+      }
+    }
 
     // Trova Segnalazione per segnalazioneId e utenteId (verifica ownership)
     const segnalazione = await Segnalazione.findOne({
       segnalazioneId: id,
-      utenteId: userObjectId,
+      utenteId: utenteIdQuery,
     });
 
     if (!segnalazione) {
@@ -418,13 +470,26 @@ export async function deleteReport(req, res, next) {
     const userId = req.user.userId;
     const { id } = req.params;
 
-    // Converti userId (stringa) in ObjectId
-    const userObjectId = new mongoose.Types.ObjectId(userId);
+    // utenteId può essere sia ObjectId che String (come "USR-001")
+    // Costruisci query che funziona con entrambi i tipi
+    let utenteIdQuery;
+    if (mongoose.Types.ObjectId.isValid(userId)) {
+      utenteIdQuery = new mongoose.Types.ObjectId(userId);
+    } else {
+      // Se è una stringa tipo "USR-001", cerca l'utente per utenteId
+      const user = await User.findOne({ utenteId: userId }).lean();
+      if (user) {
+        utenteIdQuery = user._id;
+      } else {
+        // Se non trovato, cerca direttamente per stringa
+        utenteIdQuery = userId;
+      }
+    }
 
     // Trova Segnalazione per segnalazioneId e utenteId (verifica ownership)
     const segnalazione = await Segnalazione.findOne({
       segnalazioneId: id,
-      utenteId: userObjectId,
+      utenteId: utenteIdQuery,
     });
 
     if (!segnalazione) {
