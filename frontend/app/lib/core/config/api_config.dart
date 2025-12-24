@@ -36,6 +36,10 @@ class ApiConfig {
   
   /// Endpoint per ottenere informazioni utente
   static const String userInfoEndpoint = '/user/info';
+
+  /// Endpoint notifiche
+  static const String notificationsEndpoint = '/notifications';
+  static const String notificationsUnreadEndpoint = '/notifications/unread';
 }
 
 
