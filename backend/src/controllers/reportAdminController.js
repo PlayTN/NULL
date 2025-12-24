@@ -1,5 +1,6 @@
 import Segnalazione from '../models/Segnalazione.js';
 import User from '../models/User.js';
+import Operatore from '../models/Operatore.js';
 import Locker from '../models/Locker.js';
 import mongoose from 'mongoose';
 import {
@@ -17,7 +18,9 @@ async function formatAdminReportResponse(segnalazione) {
   const response = {
     id: segnalazione.segnalazioneId,
     userId: segnalazione.utenteId
-      ? segnalazione.utenteId.toString()
+      ? (segnalazione.utenteId instanceof mongoose.Types.ObjectId 
+          ? segnalazione.utenteId.toString() 
+          : segnalazione.utenteId)
       : null,
     userName: null,
     userSurname: null,
@@ -38,7 +41,9 @@ async function formatAdminReportResponse(segnalazione) {
     lockerPosition: null,
     cellaId: segnalazione.cellaId || null,
     assignedOperatorId: segnalazione.operatoreAssegnatoId
-      ? segnalazione.operatoreAssegnatoId.toString()
+      ? (segnalazione.operatoreAssegnatoId instanceof mongoose.Types.ObjectId 
+          ? segnalazione.operatoreAssegnatoId.toString() 
+          : segnalazione.operatoreAssegnatoId)
       : null,
     assignedOperatorName: null,
     maintenanceInterventionId: segnalazione.interventoManutenzioneId || null,
@@ -95,35 +100,50 @@ async function formatAdminReportResponse(segnalazione) {
     let operatore = null;
     const operatoreIdValue = segnalazione.operatoreAssegnatoId;
     
-    // Se è un ObjectId, prova a cercare per _id
-    if (operatoreIdValue instanceof mongoose.Types.ObjectId) {
-      try {
-        operatore = await User.findById(operatoreIdValue).lean();
-      } catch (e) {
-        // Se fallisce, ignora
-      }
-    }
-    
-    // Se non trovato, potrebbe essere una stringa (come "OP-002")
-    // In questo caso, cerca nella collezione Operatore
-    if (!operatore) {
-      try {
-        const Operatore = mongoose.model('Operatore');
-        // Prova a cercare per operatoreId (campo stringa)
-        if (typeof operatoreIdValue === 'string') {
+    try {
+      // Prima prova a cercare nella collezione Operatore (per stringhe come "OP-002")
+      if (typeof operatoreIdValue === 'string') {
+        // Cerca per operatoreId (campo stringa) nella collezione Operatore
+        try {
           operatore = await Operatore.findOne({ operatoreId: operatoreIdValue }).lean();
+        } catch (e) {
+          logger.warn(`Errore ricerca operatore per operatoreId "${operatoreIdValue}": ${e.message}`);
         }
-        // Se non trovato, prova a convertire in ObjectId e cercare per _id
-        if (!operatore && mongoose.Types.ObjectId.isValid(operatoreIdValue)) {
+        
+        // Se non trovato per operatoreId, prova per _id solo se è un ObjectId valido
+        // MA solo se non è una stringa tipo "OP-002" (che non è un ObjectId valido)
+        if (!operatore && mongoose.Types.ObjectId.isValid(operatoreIdValue) && !operatoreIdValue.match(/^(OP|USR|OPR|SEG|DON|NOL|LCK|CEL)-/)) {
           try {
             operatore = await Operatore.findById(operatoreIdValue).lean();
           } catch (e) {
-            // Ignora
+            // Ignora errori di cast
           }
         }
-      } catch (e) {
-        logger.warn(`Errore ricerca operatore per segnalazione: ${e.message}`);
       }
+      
+      // Se è un ObjectId e non ancora trovato, prova nella collezione User
+      if (!operatore && operatoreIdValue instanceof mongoose.Types.ObjectId) {
+        try {
+          operatore = await User.findById(operatoreIdValue).lean();
+        } catch (e) {
+          // Ignora errori
+        }
+      }
+      
+      // Se ancora non trovato e è una stringa che rappresenta un ObjectId valido, prova User
+      // MA solo se non è una stringa tipo "OP-002" (che non è un ObjectId valido)
+      if (!operatore && typeof operatoreIdValue === 'string' && mongoose.Types.ObjectId.isValid(operatoreIdValue)) {
+        // Verifica che non sia una stringa tipo "OP-002" o "USR-001" (che non sono ObjectId)
+        if (!operatoreIdValue.match(/^(OP|USR|OPR|SEG|DON|NOL|LCK|CEL)-/)) {
+          try {
+            operatore = await User.findById(operatoreIdValue).lean();
+          } catch (e) {
+            // Ignora errori
+          }
+        }
+      }
+    } catch (e) {
+      logger.warn(`Errore ricerca operatore per segnalazione: ${e.message}`);
     }
     
     if (operatore) {
@@ -227,9 +247,41 @@ export async function getAllReports(req, res, next) {
       .limit(limitNum)
       .lean();
 
-    // Formatta risposte
+    // Formatta risposte con gestione errori per ogni segnalazione
     const items = await Promise.all(
-      segnalazioni.map((segnalazione) => formatAdminReportResponse(segnalazione))
+      segnalazioni.map(async (segnalazione) => {
+        try {
+          return await formatAdminReportResponse(segnalazione);
+        } catch (error) {
+          logger.warn(`Errore formattazione segnalazione ${segnalazione.segnalazioneId}: ${error.message}`);
+          // Restituisci una risposta minimale in caso di errore
+          return {
+            id: segnalazione.segnalazioneId,
+            userId: segnalazione.utenteId ? (segnalazione.utenteId instanceof mongoose.Types.ObjectId ? segnalazione.utenteId.toString() : segnalazione.utenteId) : null,
+            userName: null,
+            userSurname: null,
+            userEmail: null,
+            userPhone: null,
+            category: segnalazione.categoria,
+            description: segnalazione.descrizione,
+            photoUrl: segnalazione.fotoUrl || null,
+            priority: segnalazione.priorita,
+            status: segnalazione.stato,
+            createdAt: segnalazione.dataCreazione,
+            resolvedAt: segnalazione.dataRisoluzione || null,
+            operatorResponse: segnalazione.rispostaOperatore || null,
+            operatorNotes: segnalazione.noteOperatore || null,
+            lockerId: segnalazione.lockerId || null,
+            lockerName: null,
+            lockerType: null,
+            lockerPosition: null,
+            cellaId: segnalazione.cellaId || null,
+            assignedOperatorId: segnalazione.operatoreAssegnatoId ? (segnalazione.operatoreAssegnatoId instanceof mongoose.Types.ObjectId ? segnalazione.operatoreAssegnatoId.toString() : segnalazione.operatoreAssegnatoId) : null,
+            assignedOperatorName: null,
+            maintenanceInterventionId: segnalazione.interventoManutenzioneId || null,
+          };
+        }
+      })
     );
 
     // Calcola total per paginazione
@@ -275,8 +327,39 @@ export async function getReportById(req, res, next) {
       throw new NotFoundError('Segnalazione non trovata');
     }
 
-    // Formatta risposta
-    const reportResponse = await formatAdminReportResponse(segnalazione);
+    // Formatta risposta con gestione errori
+    let reportResponse;
+    try {
+      reportResponse = await formatAdminReportResponse(segnalazione);
+    } catch (error) {
+      logger.warn(`Errore formattazione segnalazione ${id}: ${error.message}`);
+      // Restituisci una risposta minimale in caso di errore
+      reportResponse = {
+        id: segnalazione.segnalazioneId,
+        userId: segnalazione.utenteId ? (segnalazione.utenteId instanceof mongoose.Types.ObjectId ? segnalazione.utenteId.toString() : segnalazione.utenteId) : null,
+        userName: null,
+        userSurname: null,
+        userEmail: null,
+        userPhone: null,
+        category: segnalazione.categoria,
+        description: segnalazione.descrizione,
+        photoUrl: segnalazione.fotoUrl || null,
+        priority: segnalazione.priorita,
+        status: segnalazione.stato,
+        createdAt: segnalazione.dataCreazione,
+        resolvedAt: segnalazione.dataRisoluzione || null,
+        operatorResponse: segnalazione.rispostaOperatore || null,
+        operatorNotes: segnalazione.noteOperatore || null,
+        lockerId: segnalazione.lockerId || null,
+        lockerName: null,
+        lockerType: null,
+        lockerPosition: null,
+        cellaId: segnalazione.cellaId || null,
+        assignedOperatorId: segnalazione.operatoreAssegnatoId ? (segnalazione.operatoreAssegnatoId instanceof mongoose.Types.ObjectId ? segnalazione.operatoreAssegnatoId.toString() : segnalazione.operatoreAssegnatoId) : null,
+        assignedOperatorName: null,
+        maintenanceInterventionId: segnalazione.interventoManutenzioneId || null,
+      };
+    }
 
     logger.info(`Dettaglio segnalazione ${id} recuperato (admin)`);
 

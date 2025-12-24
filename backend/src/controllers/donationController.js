@@ -78,8 +78,11 @@ export async function createDonation(req, res, next) {
     // Converti userId (stringa) in ObjectId
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    // Validazione campi obbligatori
+    // Validazione campi obbligatori: foto, tipo e descrizione
     // nomeOggetto è opzionale, non obbligatorio
+    if (!photo) {
+      throw new ValidationError('foto è obbligatoria');
+    }
     if (!tipoAttrezzatura) {
       throw new ValidationError('tipoAttrezzatura è obbligatorio');
     }
@@ -116,14 +119,12 @@ export async function createDonation(req, res, next) {
     // Genera donazioneId prima di salvare foto
     const donazioneId = await Donazione.generateDonazioneId();
 
-    // Salva foto se presente
+    // Salva foto (obbligatoria)
     let fotoUrl = null;
-    if (photo) {
-      try {
-        fotoUrl = await savePhoto(photo, donazioneId);
-      } catch (error) {
-        throw new ValidationError(`Errore salvataggio foto: ${error.message}`);
-      }
+    try {
+      fotoUrl = await savePhoto(photo, donazioneId);
+    } catch (error) {
+      throw new ValidationError(`Errore salvataggio foto: ${error.message}`);
     }
 
     // Crea Donazione

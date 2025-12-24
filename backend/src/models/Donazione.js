@@ -32,7 +32,7 @@ const donazioneSchema = new mongoose.Schema(
     },
     tipoAttrezzatura: {
       type: String,
-      required: true,
+      required: true, // Obbligatorio: foto, tipo e descrizione
       enum: ['sportiva', 'elettronica', 'abbigliamento', 'libri', 'giochi', 'altro'],
       trim: true,
     },
@@ -43,12 +43,13 @@ const donazioneSchema = new mongoose.Schema(
     },
     descrizione: {
       type: String,
-      required: true,
+      required: true, // Obbligatorio: foto, tipo e descrizione
       trim: true,
     },
     fotoUrl: {
       type: String,
-      default: null,
+      required: true, // Obbligatorio: foto, tipo e descrizione
+      trim: true,
     },
     stato: {
       type: String,
