@@ -75,25 +75,35 @@ class _DonationDetailPageState extends State<DonationDetailPage> {
       final result = await DonationService.updateDonationStatus(
         donationId: _currentDonation.id,
         status: statusBackend,
-        lockerId: lockerId,
-        cellId: cellId,
-        isComunePickup: isComunePickup,
         motivoRifiuto: motivoRifiuto,
       );
 
       if (result['success'] == true) {
         setState(() {
-          final index = mockDonations.indexWhere((d) => d.id == _currentDonation.id);
-          if (index != -1) {
-            _currentDonation = _currentDonation.copyWith(
-              status: newStatus,
-              lockerId: lockerId,
-              cellId: cellId,
-              isComunePickup: isComunePickup,
-            );
-            mockDonations[index] = _currentDonation;
-          }
+          _currentDonation = _currentDonation.copyWith(
+            status: newStatus,
+            lockerId: lockerId,
+            cellId: cellId,
+            isComunePickup: isComunePickup,
+          );
         });
+        
+        // Mostra messaggio di successo
+        if (mounted) {
+          showCupertinoDialog(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: const Text('Successo'),
+              content: Text('Stato donazione aggiornato a: ${newStatus.label}'),
+              actions: [
+                CupertinoDialogAction(
+                  child: const Text('OK'),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+          );
+        }
       } else {
         if (mounted) {
           showCupertinoDialog(
@@ -1055,49 +1065,55 @@ class _DonationDetailPageState extends State<DonationDetailPage> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          ApiClient.getImageUrl(_currentDonation.photoUrl),
-                          width: double.infinity,
-                          height: 200, // Limita l'altezza
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              height: 200,
-                              color: CupertinoColors.systemGrey.withOpacity(0.2),
-                              child: Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      CupertinoIcons.exclamationmark_triangle,
-                                      color: CupertinoColors.systemGrey,
-                                      size: 32,
+                      Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxHeight: 250, maxWidth: 300),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              ApiClient.getImageUrl(_currentDonation.photoUrl),
+                              width: double.infinity,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  height: 200,
+                                  width: 200,
+                                  color: CupertinoColors.systemGrey.withOpacity(0.2),
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          CupertinoIcons.exclamationmark_triangle,
+                                          color: CupertinoColors.systemGrey,
+                                          size: 32,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Impossibile caricare l\'immagine',
+                                          style: TextStyle(
+                                            color: CupertinoColors.systemGrey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      'Impossibile caricare l\'immagine',
-                                      style: TextStyle(
-                                        color: CupertinoColors.systemGrey,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                          loadingBuilder: (context, child, loadingProgress) {
-                            if (loadingProgress == null) return child;
-                            return Container(
-                              height: 200,
-                              color: CupertinoColors.systemGrey.withOpacity(0.2),
-                              child: const Center(
-                                child: CupertinoActivityIndicator(),
-                              ),
-                            );
-                          },
+                                  ),
+                                );
+                              },
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return Container(
+                                  height: 200,
+                                  width: 200,
+                                  color: CupertinoColors.systemGrey.withOpacity(0.2),
+                                  child: const Center(
+                                    child: CupertinoActivityIndicator(),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
                       ),
                     ],

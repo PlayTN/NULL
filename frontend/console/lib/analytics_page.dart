@@ -1074,6 +1074,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1119,96 +1120,102 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     ),
                   ),
                 )
-              : ...sortedZones.asMap().entries.map((entry) {
-            final index = entry.key;
-            final zone = entry.value;
-            final isSelected = _selectedPark == zone.zoneId;
-            
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () {
-                  setState(() {
-                    _selectedPark = zone.zoneId;
-                    _currentView = 'lockerRanking';
-                  });
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? AppColors.primary.withOpacity(0.1)
-                        : (isDark 
-                            ? CupertinoColors.black 
-                            : CupertinoColors.systemGrey6),
-                    border: Border.all(
-                      color: isSelected
-                          ? AppColors.primary
-                          : CupertinoColors.separator,
-                      width: isSelected ? 2 : 0.5,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: AppColors.primary.withOpacity(0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: Text(
-                            '${index + 1}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.primary,
+              : SizedBox(
+                  height: 400, // Altezza fissa per evitare problemi di layout
+                  child: ListView(
+                    shrinkWrap: false,
+                    children: sortedZones.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final zone = entry.value;
+                      final isSelected = _selectedPark == zone.zoneId;
+                      
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () {
+                            setState(() {
+                              _selectedPark = zone.zoneId;
+                              _currentView = 'lockerRanking';
+                            });
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.primary.withOpacity(0.1)
+                                  : (isDark 
+                                      ? CupertinoColors.black 
+                                      : CupertinoColors.systemGrey6),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.primary
+                                    : CupertinoColors.separator,
+                                width: isSelected ? 2 : 0.5,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '${index + 1}',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        zone.zoneName,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark 
+                                              ? CupertinoColors.white 
+                                              : CupertinoColors.black,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${zone.totalUsage} utilizzi',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          color: CupertinoColors.systemGrey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Icon(
+                                  CupertinoIcons.chevron_right,
+                                  color: isDark 
+                                      ? CupertinoColors.white 
+                                      : CupertinoColors.black,
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              zone.zoneName,
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: isDark 
-                                    ? CupertinoColors.white 
-                                    : CupertinoColors.black,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${zone.totalUsage} utilizzi',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        CupertinoIcons.chevron_right,
-                        color: isDark 
-                            ? CupertinoColors.white 
-                            : CupertinoColors.black,
-                      ),
-                    ],
+                      );
+                    }).toList(),
                   ),
                 ),
-              ),
-            );
-          }).toList(),
         ],
       ),
     );
@@ -1241,6 +1248,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1273,76 +1281,82 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             ],
           ),
           const SizedBox(height: 24),
-          ...sortedLockers.asMap().entries.map((entry) {
-            final index = entry.key;
-            final locker = entry.value;
-            
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: isDark 
-                      ? CupertinoColors.black 
-                      : CupertinoColors.systemGrey6,
-                  border: Border.all(
-                    color: CupertinoColors.separator,
-                    width: 0.5,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.2),
-                        shape: BoxShape.circle,
+          SizedBox(
+            height: 400, // Altezza fissa per evitare problemi di layout
+            child: ListView(
+              shrinkWrap: false,
+              children: sortedLockers.asMap().entries.map((entry) {
+                final index = entry.key;
+                final locker = entry.value;
+                
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDark 
+                          ? CupertinoColors.black 
+                          : CupertinoColors.systemGrey6,
+                      border: Border.all(
+                        color: CupertinoColors.separator,
+                        width: 0.5,
                       ),
-                      child: Center(
-                        child: Text(
-                          '${index + 1}',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: AppColors.primary.withOpacity(0.2),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              '${index + 1}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.primary,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            locker.lockerName,
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: isDark 
-                                  ? CupertinoColors.white 
-                                  : CupertinoColors.black,
-                            ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                locker.lockerName,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: isDark 
+                                      ? CupertinoColors.white 
+                                      : CupertinoColors.black,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${locker.lockerCode} - ${locker.totalUsage} utilizzi',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: CupertinoColors.systemGrey,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${locker.lockerCode} - ${locker.totalUsage} utilizzi',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ],
       ),
     );
