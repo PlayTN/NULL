@@ -75,9 +75,9 @@ class _DonationsPageState extends State<DonationsPage> {
         final categoriaStr = (data['categoria'] as String?)?.toLowerCase() ?? '';
         final tipoAttrezzaturaStr = (data['tipoAttrezzatura'] as String?)?.toLowerCase() ?? '';
         
-        if (categoriaStr.contains('sport') || tipoAttrezzaturaStr == 'sportiva') {
+        if (categoriaStr.contains('sport') || tipoAttrezzaturaStr == 'sport') {
           category = DonationCategory.sportivi;
-        } else if (categoriaStr.contains('person') || tipoAttrezzaturaStr == 'abbigliamento') {
+        } else if (categoriaStr.contains('person') || tipoAttrezzaturaStr == 'libri' || tipoAttrezzaturaStr == 'giochi') {
           category = DonationCategory.personali;
         } else if (categoriaStr.contains('pet') || categoriaStr.contains('cane') || categoriaStr.contains('gatto')) {
           category = DonationCategory.petFriendly;

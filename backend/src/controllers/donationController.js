@@ -92,9 +92,7 @@ export async function createDonation(req, res, next) {
 
     // Valida tipoAttrezzatura
     const tipiValidi = [
-      'sportiva',
-      'elettronica',
-      'abbigliamento',
+      'sport',
       'libri',
       'giochi',
       'altro',
@@ -327,9 +325,7 @@ export async function updateDonation(req, res, next) {
     // Valida tipoAttrezzatura se presente
     if (tipoAttrezzatura) {
       const tipiValidi = [
-        'sportiva',
-        'elettronica',
-        'abbigliamento',
+        'sport',
         'libri',
         'giochi',
         'altro',
