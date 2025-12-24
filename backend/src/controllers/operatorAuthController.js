@@ -168,7 +168,3 @@ export async function operatorLogin(req, res, next) {
   }
 }
 
-export default {
-  operatorLogin,
-};
-

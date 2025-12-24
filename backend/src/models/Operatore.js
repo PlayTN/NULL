@@ -5,15 +5,49 @@ const operatoreSchema = new mongoose.Schema(
   {
     operatoreId: {
       type: String,
-      required: true,
+      required: false, // Opzionale per compatibilità con dati esistenti
       unique: true,
+      sparse: true,
+      index: true,
+      trim: true,
+    },
+    // Campi per autenticazione username/password
+    username: {
+      type: String,
+      required: false, // Opzionale per compatibilità con dati esistenti
+      unique: true,
+      sparse: true,
+      index: true,
+      trim: true,
+      lowercase: true,
+    },
+    passwordHash: {
+      type: String,
+      required: false, // Opzionale per compatibilità con dati esistenti
+      select: false, // Non includere di default nelle query
+    },
+    nome: {
+      type: String,
+      required: false, // Opzionale per compatibilità con dati esistenti
+      trim: true,
+    },
+    cognome: {
+      type: String,
+      required: false, // Opzionale per compatibilità con dati esistenti
+      trim: true,
+    },
+    attivo: {
+      type: Boolean,
+      default: true,
       index: true,
     },
+    // Campi legacy (per compatibilità con struttura esistente)
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false, // Opzionale per compatibilità
       unique: true,
+      sparse: true,
       index: true,
     },
     matricola: {
@@ -60,6 +94,11 @@ const operatoreSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    refreshToken: {
+      type: String,
+      default: null,
+      select: false, // Non includere di default nelle query
+    },
     note: {
       type: String,
       default: null,
@@ -69,14 +108,18 @@ const operatoreSchema = new mongoose.Schema(
   {
     timestamps: false,
     collection: 'operatore',
+    strict: false, // Permette campi aggiuntivi non definiti nello schema
   }
 );
 
 // Index
+operatoreSchema.index({ username: 1 });
+operatoreSchema.index({ operatoreId: 1 });
 operatoreSchema.index({ userId: 1 });
 operatoreSchema.index({ matricola: 1 });
 operatoreSchema.index({ stato: 1 });
 operatoreSchema.index({ reparto: 1 });
+operatoreSchema.index({ attivo: 1 });
 
 // Metodo per rimuovere campi interni dalla serializzazione (GDPR RNF5)
 operatoreSchema.methods.toJSON = function () {
