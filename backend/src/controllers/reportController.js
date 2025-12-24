@@ -10,6 +10,7 @@ import {
 } from '../middleware/errorHandler.js';
 import logger from '../utils/logger.js';
 import { savePhoto, deletePhoto } from '../utils/photoStorage.js';
+import { createNotification } from '../services/notificationService.js';
 
 /**
  * Formatta Segnalazione come ReportResponse per frontend
@@ -171,6 +172,26 @@ export async function createReport(req, res, next) {
     });
 
     await segnalazione.save();
+
+    // Crea una notifica per ringraziare l'utente della segnalazione
+    try {
+      await createNotification(
+        utenteIdValue,
+        'sistema',
+        'Grazie per la segnalazione',
+        'La tua segnalazione è stata ricevuta e verrà analizzata al più presto.',
+        {
+          segnalazioneId,
+          categoria,
+        }
+      );
+    } catch (notificationError) {
+      logger.warn(
+        `Errore creazione notifica per segnalazione ${segnalazioneId}:`,
+        notificationError
+      );
+      // Non blocchiamo la creazione della segnalazione se la notifica fallisce
+    }
 
     // Formatta risposta
     const reportResponse = await formatReportResponse(segnalazione);
