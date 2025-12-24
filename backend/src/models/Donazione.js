@@ -33,7 +33,7 @@ const donazioneSchema = new mongoose.Schema(
     tipoAttrezzatura: {
       type: String,
       required: true, // Obbligatorio: foto, tipo e descrizione
-      enum: ['sportiva', 'elettronica', 'abbigliamento', 'libri', 'giochi', 'altro'],
+      enum: ['sport', 'libri', 'giochi', 'altro'],
       trim: true,
     },
     categoria: {
