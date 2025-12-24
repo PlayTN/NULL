@@ -4,10 +4,12 @@ import 'package:console/core/theme/app_colors.dart';
 import 'package:console/features/lockers/domain/models/locker.dart';
 import 'package:console/features/lockers/domain/models/locker_cell.dart';
 import 'package:console/features/lockers/domain/models/cell_type.dart';
+import 'package:console/features/lockers/domain/models/locker_type.dart';
 import 'package:console/features/lockers/domain/repositories/locker_repository.dart';
 import 'package:console/features/lockers/data/repositories/locker_repository_api.dart';
 import 'package:console/features/reports/domain/models/report.dart';
 import 'package:console/features/reports/data/mock_reports.dart';
+import 'package:console/core/api/rental_service.dart';
 
 class LockerDetailPage extends StatefulWidget {
   final Locker locker;
@@ -30,6 +32,8 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
   List<LockerCell> _cells = [];
   bool _isLoading = true;
   CellType? _selectedFilter;
+  // Mappa per tracciare le informazioni di affitto: cellId -> {id, nomeAzienda, partitaIva, codiceFiscale}
+  final Map<String, Map<String, dynamic>> _rentalInfo = {};
 
   @override
   void initState() {
@@ -675,6 +679,34 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
     
     try {
       final cells = await _lockerRepository.getLockerCells(widget.locker.id);
+      
+      // Se il locker è commerciale, carica anche gli affitti
+      if (widget.locker.type == LockerType.commerciali) {
+        try {
+          final rentals = await RentalService.getRentalsByLockerId(widget.locker.id);
+          
+          // Crea una mappa degli affitti per cella
+          final Map<String, Map<String, dynamic>> rentalMap = {};
+          for (var rental in rentals) {
+            if (rental['cellaId'] != null && rental['attivo'] == true) {
+              rentalMap[rental['cellaId'] as String] = {
+                'id': rental['id'],
+                'nomeAzienda': rental['nomeAzienda'],
+                'partitaIva': rental['partitaIva'],
+                'codiceFiscale': rental['codiceFiscale'],
+              };
+            }
+          }
+          
+          setState(() {
+            _rentalInfo.clear();
+            _rentalInfo.addAll(rentalMap);
+          });
+        } catch (e) {
+          print('Errore durante il caricamento degli affitti: $e');
+        }
+      }
+      
       setState(() {
         // Se il locker è offline, tutte le celle devono essere offline
         _cells = cells.map((cell) {
@@ -1253,6 +1285,63 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
                   ),
                 ),
               ],
+            ),
+          ],
+          // Mostra informazioni affitto se presente (solo per locker commerciali)
+          if (widget.locker.type == LockerType.commerciali && _rentalInfo.containsKey(cell.id)) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark 
+                    ? CupertinoColors.darkBackgroundGray.withOpacity(0.5)
+                    : CupertinoColors.systemGrey.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: CupertinoColors.separator,
+                  width: 0.5,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        CupertinoIcons.building_2_fill,
+                        size: 16,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Cella affittata',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Azienda: ${_rentalInfo[cell.id]!['nomeAzienda'] ?? 'N/A'}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? CupertinoColors.white : CupertinoColors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'P.IVA/CF: ${_rentalInfo[cell.id]!['partitaIva'] ?? _rentalInfo[cell.id]!['codiceFiscale'] ?? 'N/A'}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ],

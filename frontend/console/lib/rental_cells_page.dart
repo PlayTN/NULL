@@ -7,6 +7,7 @@ import 'package:console/features/lockers/domain/models/cell_type.dart';
 import 'package:console/features/lockers/domain/models/locker_type.dart';
 import 'package:console/features/lockers/domain/repositories/locker_repository.dart';
 import 'package:console/features/lockers/data/repositories/locker_repository_api.dart';
+import 'package:console/core/api/rental_service.dart';
 
 class RentalCellsPage extends StatefulWidget {
   final ThemeManager themeManager;
@@ -28,8 +29,8 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
   Locker? _selectedLocker;
   List<LockerCell> _rentalCells = [];
   bool _isLoadingCells = false;
-  // Mappa per tracciare le informazioni di affitto: cellId -> {companyName, taxCode}
-  final Map<String, Map<String, String>> _rentalInfo = {};
+  // Mappa per tracciare le informazioni di affitto: cellId -> {id, nomeAzienda, partitaIva, codiceFiscale}
+  final Map<String, Map<String, dynamic>> _rentalInfo = {};
 
   @override
   void initState() {
@@ -97,17 +98,36 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
     });
     
     try {
-      // Mostra tutte le celle del locker commerciale
+      // Carica tutte le celle del locker commerciale
       final allCells = await _lockerRepository.getLockerCells(lockerId);
+      
+      // Carica gli affitti attivi per questo locker
+      final rentals = await RentalService.getRentalsByLockerId(lockerId);
+      
+      // Crea una mappa degli affitti per cella
+      final Map<String, Map<String, dynamic>> rentalMap = {};
+      for (var rental in rentals) {
+        if (rental['cellaId'] != null && rental['attivo'] == true) {
+          rentalMap[rental['cellaId'] as String] = {
+            'id': rental['id'],
+            'nomeAzienda': rental['nomeAzienda'],
+            'partitaIva': rental['partitaIva'],
+            'codiceFiscale': rental['codiceFiscale'],
+          };
+        }
+      }
       
       setState(() {
         _rentalCells = allCells;
+        _rentalInfo.clear();
+        _rentalInfo.addAll(rentalMap);
         _isLoadingCells = false;
       });
     } catch (e) {
       setState(() {
         _isLoadingCells = false;
       });
+      print('Errore durante il caricamento delle celle: $e');
     }
   }
 
@@ -492,7 +512,7 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Azienda: ${_rentalInfo[cell.id]!['companyName'] ?? 'N/A'}',
+                                'Azienda: ${_rentalInfo[cell.id]!['nomeAzienda'] ?? _rentalInfo[cell.id]!['companyName'] ?? 'N/A'}',
                                 style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w600,
@@ -501,7 +521,7 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                'P.IVA/CF: ${_rentalInfo[cell.id]!['taxCode'] ?? 'N/A'}',
+                                'P.IVA/CF: ${_rentalInfo[cell.id]!['partitaIva'] ?? _rentalInfo[cell.id]!['codiceFiscale'] ?? _rentalInfo[cell.id]!['taxCode'] ?? 'N/A'}',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: CupertinoColors.systemGrey,
@@ -697,7 +717,7 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
                 child: const Text('Annulla'),
               ),
               CupertinoDialogAction(
-                onPressed: () {
+                onPressed: () async {
                   final companyName = companyNameController.text.trim();
                   final taxCode = taxCodeController.text.trim();
                   
@@ -713,36 +733,66 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
                   // Chiudi il dialog di input
                   Navigator.of(context).pop();
                   
-                  // Aggiorna lo stato
-                  setState(() {
-                    _rentalInfo[cell.id] = {
-                      'companyName': companyName,
-                      'taxCode': taxCode,
-                    };
-                    // Aggiorna la cella nella lista per renderla occupata
-                    final index = _rentalCells.indexWhere((c) => c.id == cell.id);
-                    if (index != -1) {
-                      _rentalCells[index] = _rentalCells[index].copyWith(isAvailable: false);
-                    }
-                  });
+                  // Determina se è Partita IVA o Codice Fiscale (P.IVA ha 11 cifre, CF ha 16 caratteri)
+                  String? partitaIva;
+                  String? codiceFiscale;
+                  
+                  if (taxCode.length == 11 && RegExp(r'^\d+$').hasMatch(taxCode)) {
+                    partitaIva = taxCode;
+                  } else {
+                    codiceFiscale = taxCode;
+                  }
+                  
+                  // Chiama il backend per creare l'affitto
+                  final result = await RentalService.createRental(
+                    cellaId: cell.id,
+                    lockerId: _selectedLocker!.id,
+                    nomeAzienda: companyName,
+                    partitaIva: partitaIva,
+                    codiceFiscale: codiceFiscale,
+                  );
                   
                   companyNameController.dispose();
                   taxCodeController.dispose();
                   
-                  // Mostra conferma
-                  showCupertinoDialog(
-                    context: context,
-                    builder: (context) => CupertinoAlertDialog(
-                      title: const Text('Affitto confermato'),
-                      content: Text('La cella ${cell.cellNumber} è stata affittata a $companyName'),
-                      actions: [
-                        CupertinoDialogAction(
-                          child: const Text('OK'),
-                          onPressed: () => Navigator.of(context).pop(),
+                  if (result['success'] == true) {
+                    // Ricarica le celle per aggiornare i dati
+                    await _loadRentalCells(_selectedLocker!.id);
+                    
+                    // Mostra conferma
+                    if (mounted) {
+                      showCupertinoDialog(
+                        context: context,
+                        builder: (context) => CupertinoAlertDialog(
+                          title: const Text('Affitto confermato'),
+                          content: Text('La cella ${cell.cellNumber} è stata affittata a $companyName'),
+                          actions: [
+                            CupertinoDialogAction(
+                              child: const Text('OK'),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  );
+                      );
+                    }
+                  } else {
+                    // Mostra errore
+                    if (mounted) {
+                      showCupertinoDialog(
+                        context: context,
+                        builder: (context) => CupertinoAlertDialog(
+                          title: const Text('Errore'),
+                          content: Text(result['error'] ?? 'Impossibile creare l\'affitto. Riprova più tardi.'),
+                          actions: [
+                            CupertinoDialogAction(
+                              child: const Text('OK'),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                  }
                 },
                 child: const Text('Affitta'),
               ),
@@ -754,7 +804,9 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
   }
 
   void _showTerminateRentDialog(LockerCell cell, bool isDark) {
-    final companyName = _rentalInfo[cell.id]?['companyName'] ?? 'N/A';
+    final rentalInfo = _rentalInfo[cell.id];
+    final companyName = rentalInfo?['nomeAzienda'] ?? rentalInfo?['companyName'] ?? 'N/A';
+    final rentalId = rentalInfo?['id'];
     
     showCupertinoDialog(
       context: context,
@@ -768,33 +820,52 @@ class _RentalCellsPageState extends State<RentalCellsPage> {
             child: const Text('Annulla'),
           ),
           CupertinoDialogAction(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
               
-              // Termina l'affitto
-              setState(() {
-                _rentalInfo.remove(cell.id);
-                // Aggiorna la cella nella lista per renderla disponibile
-                final index = _rentalCells.indexWhere((c) => c.id == cell.id);
-                if (index != -1) {
-                  _rentalCells[index] = _rentalCells[index].copyWith(isAvailable: true);
+              if (rentalId != null) {
+                // Chiama il backend per terminare l'affitto
+                final result = await RentalService.terminateRental(rentalId as String);
+                
+                if (result['success'] == true) {
+                  // Ricarica le celle per aggiornare i dati
+                  await _loadRentalCells(_selectedLocker!.id);
+                  
+                  // Mostra conferma
+                  if (mounted) {
+                    showCupertinoDialog(
+                      context: context,
+                      builder: (context) => CupertinoAlertDialog(
+                        title: const Text('Affitto terminato'),
+                        content: Text('L\'affitto della cella ${cell.cellNumber} è stato terminato'),
+                        actions: [
+                          CupertinoDialogAction(
+                            child: const Text('OK'),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                } else {
+                  // Mostra errore
+                  if (mounted) {
+                    showCupertinoDialog(
+                      context: context,
+                      builder: (context) => CupertinoAlertDialog(
+                        title: const Text('Errore'),
+                        content: Text(result['error'] ?? 'Impossibile terminare l\'affitto. Riprova più tardi.'),
+                        actions: [
+                          CupertinoDialogAction(
+                            child: const Text('OK'),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
                 }
-              });
-              
-              // Mostra conferma
-              showCupertinoDialog(
-                context: context,
-                builder: (context) => CupertinoAlertDialog(
-                  title: const Text('Affitto terminato'),
-                  content: Text('L\'affitto della cella ${cell.cellNumber} è stato terminato'),
-                  actions: [
-                    CupertinoDialogAction(
-                      child: const Text('OK'),
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                  ],
-                ),
-              );
+              }
             },
             child: const Text('Termina'),
           ),

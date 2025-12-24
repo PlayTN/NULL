@@ -28,6 +28,7 @@ import adminLockerRoutes from './routes/admin/lockers.js';
 import adminCellRoutes from './routes/admin/cells.js';
 import reportingRoutes from './routes/admin/reporting.js';
 import categoryRoutes from './routes/admin/categories.js';
+import rentalRoutes from './routes/admin/rentals.js';
 import { notFound } from './middleware/notFound.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -87,6 +88,7 @@ app.use(`/api/${config.apiVersion}/admin/lockers`, adminLockerRoutes);
 app.use(`/api/${config.apiVersion}/admin/cells`, adminCellRoutes);
 app.use(`/api/${config.apiVersion}/admin/reporting`, reportingRoutes);
 app.use(`/api/${config.apiVersion}/admin/categories`, categoryRoutes);
+app.use(`/api/${config.apiVersion}/admin/rentals`, rentalRoutes);
 
 // 404 handler (must be after all routes)
 app.use(notFound);
