@@ -1239,6 +1239,82 @@ export async function getCommercialCellUsage(req, res, next) {
   }
 }
 
+/**
+ * PUT /api/v1/admin/cells/:id/status
+ * Modificare stato cella (libera/manutenzione)
+ * RF14: Modificare stato cella
+ */
+export async function updateCellStatus(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { stato } = req.body;
+    const operatoreId = req.user.userId;
+
+    // Converti operatoreId (stringa) in ObjectId
+    const operatoreObjectId = new mongoose.Types.ObjectId(operatoreId);
+
+    // Validazione stato
+    if (!stato) {
+      throw new ValidationError('stato è obbligatorio');
+    }
+
+    const statiValidi = ['libera', 'manutenzione'];
+    if (!statiValidi.includes(stato)) {
+      throw new ValidationError(
+        `stato non valido. Valori accettati: ${statiValidi.join(', ')}`
+      );
+    }
+
+    // Trova Cell
+    const cella = await Cell.findOne({ cellaId: id });
+
+    if (!cella) {
+      throw new NotFoundError('Cella non trovata');
+    }
+
+    // Aggiorna stato
+    cella.stato = stato;
+    cella.dataAggiornamento = new Date();
+
+    await cella.save();
+
+    // Crea audit
+    try {
+      const auditId = await AuditOperatore.generateAuditId();
+      await AuditOperatore.create({
+        auditId,
+        operatoreId: operatoreObjectId,
+        azione: 'modifica_stato',
+        entita: 'cella',
+        entitaId: id,
+        dettagli: { stato: stato },
+        timestamp: new Date(),
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      });
+    } catch (auditError) {
+      logger.warn('Errore creazione audit modifica stato cella:', auditError);
+    }
+
+    logger.info(
+      `Stato cella ${id} aggiornato a ${stato} da operatore ${operatoreId}`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        cell: {
+          id: cella.cellaId,
+          stato: cella.stato,
+          lockerId: cella.lockerId,
+        },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export default {
   getAllLockers,
   updateLockerStatus,
@@ -1251,5 +1327,6 @@ export default {
   assignCommercialCell,
   updateCommercialCell,
   getCommercialCellUsage,
+  updateCellStatus,
 };
 

@@ -299,7 +299,7 @@ class LockerRepositoryApi implements LockerRepository {
       }
 
       final response = await ApiClient.put(
-        '/cells/$cellId',
+        '/admin/cells/$cellId/status',
         body: {'stato': statoBackend},
       );
       

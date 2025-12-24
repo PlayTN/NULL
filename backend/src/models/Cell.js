@@ -59,6 +59,10 @@ const cellSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    dataAggiornamento: {
+      type: Date,
+      default: null,
+    },
     // Campi per celle commerciali (RF17)
     negozioId: {
       type: mongoose.Schema.Types.ObjectId,

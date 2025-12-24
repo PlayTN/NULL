@@ -25,6 +25,7 @@ import helpRoutes from './routes/help.js';
 import adminReportRoutes from './routes/admin/reports.js';
 import operatorRoutes from './routes/admin/operators.js';
 import adminLockerRoutes from './routes/admin/lockers.js';
+import adminCellRoutes from './routes/admin/cells.js';
 import reportingRoutes from './routes/admin/reporting.js';
 import categoryRoutes from './routes/admin/categories.js';
 import { notFound } from './middleware/notFound.js';
@@ -83,6 +84,7 @@ app.use(`/api/${config.apiVersion}/help`, helpRoutes);
 app.use(`/api/${config.apiVersion}/admin/reports`, adminReportRoutes);
 app.use(`/api/${config.apiVersion}/admin`, operatorRoutes);
 app.use(`/api/${config.apiVersion}/admin/lockers`, adminLockerRoutes);
+app.use(`/api/${config.apiVersion}/admin/cells`, adminCellRoutes);
 app.use(`/api/${config.apiVersion}/admin/reporting`, reportingRoutes);
 app.use(`/api/${config.apiVersion}/admin/categories`, categoryRoutes);
 
