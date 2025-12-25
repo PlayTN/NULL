@@ -45,6 +45,9 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
   bool _isLoading = true;
   List<LockerCell> _cells = [];
   String? _errorMessage;
+  final ScrollController _scrollController = ScrollController();
+  final GlobalKey _borrowSectionKey = GlobalKey();
+  final GlobalKey _depositSectionKey = GlobalKey();
 
   /// Raggruppa le celle di deposito per dimensione
   Map<CellSize, List<LockerCell>> _groupDepositCellsBySize() {
@@ -67,6 +70,23 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
     super.initState();
     _isAuthenticated = widget.isAuthenticated;
     _loadCells();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _scrollToSection(GlobalKey key) async {
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    await Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+      alignment: 0.08, // lascia un po' di spazio sopra la sezione
+    );
   }
 
   Future<void> _loadCells() async {
@@ -315,207 +335,308 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
 
         return CupertinoPageScaffold(
           backgroundColor: AppColors.background(isDark),
-          navigationBar: CupertinoNavigationBar(
-            backgroundColor: AppColors.surface(isDark),
-            middle: Text(
-              widget.locker.name,
-              style: AppTextStyles.title(isDark),
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics(),
             ),
-          ),
-          child: SafeArea(
-            child: _isLoading
-                ? const Center(child: CupertinoActivityIndicator())
-                : _errorMessage != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                CupertinoIcons.exclamationmark_triangle,
-                                size: 48,
-                                color: AppColors.textSecondary(isDark),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _errorMessage!,
-                                style: AppTextStyles.body(isDark),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 24),
-                              CupertinoButton.filled(
-                                onPressed: _loadCells,
-                                child: const Text('Riprova'),
-                              ),
-                            ],
-                          ),
+            slivers: [
+              CupertinoSliverNavigationBar(
+                backgroundColor: AppColors.surface(isDark),
+                border: Border(
+                  bottom: BorderSide(
+                    color: AppColors.borderColor(isDark).withOpacity(0.12),
+                    width: 0.5,
+                  ),
+                ),
+                largeTitle: Text(
+                  widget.locker.name,
+                  style: AppTextStyles.title(isDark),
+                ),
+              ),
+              CupertinoSliverRefreshControl(
+                onRefresh: _loadCells,
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate(
+                    [
+                      _buildLockerHeader(isDark),
+                      const SizedBox(height: 14),
+                      _buildMainActions(isDark),
+                      const SizedBox(height: 20),
+                      if (_isLoading) ...[
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 32),
+                          child: Center(child: CupertinoActivityIndicator()),
                         ),
-                      )
-                    : _cells.isEmpty
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(40),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    CupertinoIcons.lock,
-                                    size: 64,
-                                    color: AppColors.textSecondary(isDark),
-                                  ),
-                                  const SizedBox(height: 24),
-                                  Text(
-                                    'Nessuna cella disponibile',
-                                    style: AppTextStyles.title(isDark),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Non ci sono celle di prestito o deposito disponibili in questo locker',
-                                    style: AppTextStyles.bodySecondary(isDark),
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ],
-                              ),
+                      ] else if (_errorMessage != null) ...[
+                        _buildStateCard(
+                          isDark: isDark,
+                          icon: CupertinoIcons.exclamationmark_triangle,
+                          title: 'Errore di caricamento',
+                          message: _errorMessage!,
+                          buttonText: 'Riprova',
+                          onPressed: _loadCells,
+                        ),
+                      ] else if (_cells.isEmpty) ...[
+                        _buildStateCard(
+                          isDark: isDark,
+                          icon: CupertinoIcons.lock,
+                          title: 'Nessuna cella disponibile',
+                          message:
+                              'Non ci sono celle di prestito o deposito disponibili in questo locker.',
+                          buttonText: 'Aggiorna',
+                          onPressed: _loadCells,
+                        ),
+                      ] else ...[
+                        if (_cells.any((c) => c.type == CellType.borrow)) ...[
+                          Container(
+                            key: _borrowSectionKey,
+                            child: _buildSectionHeader(
+                              isDark: isDark,
+                              title: 'Prendi in prestito',
+                              subtitle: 'Scegli una cella e visualizza i dettagli dell\'oggetto',
+                              icon: CellType.borrow.icon,
                             ),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.all(20),
-                            children: [
-                              // Header con info locker
-                              _buildLockerHeader(isDark),
-                              const SizedBox(height: 16),
-                              // Azioni principali: Deposita / Prendi in prestito
-                              _buildMainActions(isDark),
-                              const SizedBox(height: 24),
-                              // Sezione celle per prestito
-                              if (_cells.any((c) => c.type == CellType.borrow)) ...[
-                                _buildSectionHeader(
-                                  isDark: isDark,
-                                  title: 'Prendi in prestito',
-                                  icon: CellType.borrow.icon,
-                                ),
-                                const SizedBox(height: 12),
-                                // Griglia di quadrati con simboli
-                                Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  alignment: WrapAlignment.start,
-                                  children: _cells
-                                      .where((c) => c.type == CellType.borrow)
-                                      .map((cell) => _buildBorrowCellSquare(
-                                            isDark: isDark,
-                                            cell: cell,
-                                          ))
-                                      .toList(),
-                                ),
-                              ],
-                              // Separatore minimal tra sezioni
-                              if (_cells.any((c) => c.type == CellType.borrow) && 
-                                  _cells.any((c) => c.type == CellType.deposit)) ...[
-                                const SizedBox(height: 32),
-                                Container(
-                                  height: 1,
-                                  margin: const EdgeInsets.symmetric(horizontal: 20),
-                                  color: AppColors.borderColor(isDark).withOpacity(0.2),
-                                ),
-                                const SizedBox(height: 32),
-                              ],
-                              // Sezione celle per deposito (raggruppate per dimensione)
-                              if (_cells.any((c) => c.type == CellType.deposit)) ...[
-                                _buildSectionHeader(
-                                  isDark: isDark,
-                                  title: 'Deposita oggetto',
-                                  icon: CellType.deposit.icon,
-                                ),
-                                const SizedBox(height: 12),
-                                // Griglia di quadrati raggruppati per dimensione
-                                Wrap(
-                                  spacing: 12,
-                                  runSpacing: 12,
-                                  alignment: WrapAlignment.start,
-                                  children: _groupDepositCellsBySize().entries.map((entry) {
-                                    return _buildDepositGroupSquare(
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            alignment: WrapAlignment.start,
+                            children: _cells
+                                .where((c) => c.type == CellType.borrow)
+                                .map(
+                                  (cell) => _buildBorrowCellSquare(
+                                    isDark: isDark,
+                                    cell: cell,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                          const SizedBox(height: 22),
+                        ],
+                        if (_cells.any((c) => c.type == CellType.deposit)) ...[
+                          Container(
+                            key: _depositSectionKey,
+                            child: _buildSectionHeader(
+                              isDark: isDark,
+                              title: 'Deposita oggetto',
+                              subtitle: 'Scegli una dimensione e procedi con l\'affitto',
+                              icon: CellType.deposit.icon,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 12,
+                            alignment: WrapAlignment.start,
+                            children: _groupDepositCellsBySize()
+                                .entries
+                                .map((entry) => _buildDepositGroupSquare(
                                       isDark: isDark,
                                       size: entry.key,
                                       cells: entry.value,
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ],
+                                    ))
+                                .toList(),
                           ),
+                          const SizedBox(height: 32),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },
     );
   }
 
-  Widget _buildLockerHeader(bool isDark) {
-    return Column(
-      children: [
-        // Icona locker
-        Container(
-          width: 60,
-          height: 60,
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground(isDark),
-            borderRadius: BorderRadius.circular(15),
-          ),
-          child: Icon(
-            widget.locker.type.icon,
-            size: 30,
-            color: AppColors.primary(isDark),
-          ),
+  Widget _buildStateCard({
+    required bool isDark,
+    required IconData icon,
+    required String title,
+    required String message,
+    required String buttonText,
+    required VoidCallback onPressed,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card(isDark),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.borderColor(isDark).withOpacity(0.12),
         ),
-        const SizedBox(height: 12),
-        // Nome e tipo
-        Text(
-          widget.locker.name,
-          style: AppTextStyles.title(isDark).copyWith(fontSize: 20),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 4),
-        Text(
-          widget.locker.type.label,
-          style: AppTextStyles.bodySecondary(isDark).copyWith(fontSize: 13),
-          textAlign: TextAlign.center,
-        ),
-        if (widget.locker.description != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            widget.locker.description!,
-            style: AppTextStyles.body(isDark).copyWith(fontSize: 12),
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowColor(isDark).withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
           ),
         ],
-        const SizedBox(height: 12),
-        // Disponibilità
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: AppColors.surface(isDark),
-            borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: AppColors.iconBackground(isDark),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              icon,
+              size: 28,
+              color: AppColors.primary(isDark),
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                CupertinoIcons.lock,
-                size: 16,
-                color: AppColors.textSecondary(isDark),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: AppTextStyles.title(isDark).copyWith(fontSize: 18),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            style: AppTextStyles.bodySecondary(isDark),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoButton.filled(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              borderRadius: BorderRadius.circular(12),
+              onPressed: onPressed,
+              child: Text(
+                buttonText,
+                style: const TextStyle(
+                  color: CupertinoColors.white,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                '${widget.locker.availableCells}/${widget.locker.totalCells} celle disponibili',
-                style: AppTextStyles.body(isDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLockerHeader(bool isDark) {
+    final availableNow = _cells.length;
+    final total = widget.locker.totalCells;
+    final hasDescription = widget.locker.description != null &&
+        widget.locker.description!.trim().isNotEmpty;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card(isDark),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: AppColors.borderColor(isDark).withOpacity(0.12),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.shadowColor(isDark).withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 54,
+                height: 54,
+                decoration: BoxDecoration(
+                  color: AppColors.primary(isDark).withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  widget.locker.type.icon,
+                  size: 26,
+                  color: AppColors.primary(isDark),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.locker.name,
+                      style: AppTextStyles.title(isDark).copyWith(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.locker.type.label,
+                      style: AppTextStyles.bodySecondary(isDark).copyWith(
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.surface(isDark),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: AppColors.borderColor(isDark).withOpacity(0.10),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      CupertinoIcons.lock,
+                      size: 16,
+                      color: AppColors.textSecondary(isDark),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$availableNow',
+                      style: AppTextStyles.body(isDark).copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      total > 0 ? '/$total' : '',
+                      style: AppTextStyles.bodySecondary(isDark).copyWith(
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
-        ),
-      ],
+          if (hasDescription) ...[
+            const SizedBox(height: 12),
+            Text(
+              widget.locker.description!,
+              style: AppTextStyles.bodySecondary(isDark).copyWith(height: 1.35),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -533,27 +654,25 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
         if (hasDeposit)
           Expanded(
             child: CupertinoButton.filled(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 13),
               borderRadius: BorderRadius.circular(12),
               onPressed: () {
                 if (!_isAuthenticated) {
                   _showLoginRequiredDialog();
                   return;
                 }
-                // Scorri alla sezione deposito (UX smooth)
-                // L'utente poi sceglie dimensione/cella come oggi
-                // In alternativa si può aprire direttamente la sezione pagamento
+                _scrollToSection(_depositSectionKey);
               },
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  Icon(CupertinoIcons.cube_box),
-                  SizedBox(width: 6),
-                  Text(
-                    'Deposita oggetto',
+                children: [
+                  const Icon(CupertinoIcons.cube_box),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Deposita',
                     style: TextStyle(
                       color: CupertinoColors.white,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -564,7 +683,7 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
         if (hasBorrow)
           Expanded(
             child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(vertical: 12),
+              padding: const EdgeInsets.symmetric(vertical: 13),
               borderRadius: BorderRadius.circular(12),
               color: AppColors.surface(isDark),
               onPressed: () {
@@ -572,8 +691,7 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
                   _showLoginRequiredDialog();
                   return;
                 }
-                // Per ora lasciamo che l'utente scelga la cella specifica
-                // nella sezione \"Prendi in prestito\" sottostante.
+                _scrollToSection(_borrowSectionKey);
               },
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -583,12 +701,12 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
                     size: 18,
                     color: AppColors.primary(isDark),
                   ),
-                  const SizedBox(width: 6),
+                  const SizedBox(width: 8),
                   Text(
-                    'Prendi in prestito',
+                    'Prestito',
                     style: TextStyle(
                       color: AppColors.text(isDark),
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
@@ -602,28 +720,60 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
   Widget _buildSectionHeader({
     required bool isDark,
     required String title,
+    String? subtitle,
     required IconData icon,
   }) {
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(6),
-          decoration: BoxDecoration(
-            color: AppColors.iconBackground(isDark),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: AppColors.primary(isDark),
-          ),
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card(isDark),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.borderColor(isDark).withOpacity(0.10),
         ),
-        const SizedBox(width: 8),
-        Text(
-          title,
-          style: AppTextStyles.title(isDark).copyWith(fontSize: 16),
-        ),
-      ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: AppColors.primary(isDark).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: AppColors.primary(isDark),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.title(isDark).copyWith(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                if (subtitle != null && subtitle.trim().isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: AppTextStyles.bodySecondary(isDark).copyWith(
+                      fontSize: 12.5,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

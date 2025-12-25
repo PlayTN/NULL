@@ -13,7 +13,8 @@ class MapConfig {
 
   // Tile provider per light mode (CartoDB Positron - minimal e pulito)
   static const String tileUrlTemplateLight =
-      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+      // Nota: senza "{r}" per evitare tile @2x (più pesanti) e migliorare tempi di caricamento.
+      'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
   
   // Tile provider per dark mode (CartoDB Dark Matter - minimal e scuro)
   static const String tileUrlTemplateDark =

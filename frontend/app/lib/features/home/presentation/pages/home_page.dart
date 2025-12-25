@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 
 import 'package:flutter/cupertino.dart';
@@ -47,6 +48,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   Locker? _selectedLocker; // Locker selezionato per i dettagli
   bool _showCategoryFilters = false; // Mostra filtri categoria nella ricerca
   Timer? _notificationsTimer;
+  Timer? _searchDebounce;
+  List<Locker> _allLockers = [];
+  List<Marker> _cachedLockerMarkers = [];
+  String _cachedLockerMarkersKey = '';
+  StreamSubscription<LocationData>? _locationSub;
+  Timer? _locationDebounce;
+  DateTime? _lastMapGestureAt;
+  VoidCallback? _mapAnimationListener;
+  bool _isMapAnimating = false;
+  final Distance _distance = const Distance();
+
+  static const String _lockersCacheKey = 'lockers_cache_v1';
+  static const String _userLocationLatKey = 'user_location_lat_v1';
+  static const String _userLocationLngKey = 'user_location_lng_v1';
   
   // Stato per i lockers
   List<Locker> _lockers = [];
@@ -89,7 +104,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
       duration: const Duration(milliseconds: 800),
     );
     _initializeAuthState();
-    _loadLockers();
+    _restoreCachedLockers().then((_) {
+      // Se abbiamo cache, non blocchiamo la UI con overlay pesante al primo frame
+      _loadLockers(showLoading: _lockers.isEmpty);
+    });
     _requestLocationPermissionAndZoom();
     _loadUnreadNotificationsCount();
 
@@ -115,6 +133,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _notificationsTimer?.cancel();
+    _searchDebounce?.cancel();
+    _locationDebounce?.cancel();
+    _locationSub?.cancel();
+    if (_mapAnimationListener != null) {
+      _animationController.removeListener(_mapAnimationListener!);
+    }
     _animationController.dispose();
     super.dispose();
   }
@@ -127,6 +151,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     }
     if (state == AppLifecycleState.resumed && _isAuthenticated) {
       _loadUnreadNotificationsCount();
+    }
+    if (state == AppLifecycleState.resumed) {
+      // Quando torniamo in foreground aggiorniamo subito la posizione (senza “saltare”)
+      _startLocationStreamIfPossible();
     }
   }
 
@@ -190,26 +218,60 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   
   // Metodo helper per animare lo zoom
   Future<void> _animateToLocation(LatLng target, double zoom) async {
+    // Evita accumulo di listeners (causa lag) e doppie animazioni
+    if (_isMapAnimating) {
+      _animationController.stop();
+      _isMapAnimating = false;
+    }
+    if (_mapAnimationListener != null) {
+      _animationController.removeListener(_mapAnimationListener!);
+      _mapAnimationListener = null;
+    }
+
     final currentCenter = _mapController.camera.center;
     final currentZoom = _mapController.camera.zoom;
-    
+
+    // Se siamo già praticamente lì, non animare
+    final meters = _distance.as(
+      LengthUnit.Meter,
+      currentCenter,
+      target,
+    );
+    if (meters < 2 && (currentZoom - zoom).abs() < 0.02) {
+      _mapController.move(target, zoom);
+      return;
+    }
+
+    _animationController.duration = const Duration(milliseconds: 650);
     _animationController.reset();
-    _animationController.forward();
-    
-    _animationController.addListener(() {
-      final t = Curves.easeInOut.transform(_animationController.value);
-      
-      final lat = currentCenter.latitude + (target.latitude - currentCenter.latitude) * t;
-      final lng = currentCenter.longitude + (target.longitude - currentCenter.longitude) * t;
-      final currentZoomValue = currentZoom + (zoom - currentZoom) * t;
-      
-      _mapController.move(LatLng(lat, lng), currentZoomValue);
-    });
-    
-    await _animationController.forward();
+
+    _mapAnimationListener = () {
+      final t = Curves.easeInOutCubic.transform(_animationController.value);
+      final lat =
+          currentCenter.latitude + (target.latitude - currentCenter.latitude) * t;
+      final lng =
+          currentCenter.longitude + (target.longitude - currentCenter.longitude) * t;
+      final z = currentZoom + (zoom - currentZoom) * t;
+      _mapController.move(LatLng(lat, lng), z);
+    };
+
+    _isMapAnimating = true;
+    _animationController.addListener(_mapAnimationListener!);
+    try {
+      await _animationController.forward();
+    } finally {
+      _isMapAnimating = false;
+      if (_mapAnimationListener != null) {
+        _animationController.removeListener(_mapAnimationListener!);
+        _mapAnimationListener = null;
+      }
+    }
   }
   
   Future<void> _requestLocationPermissionAndZoom() async {
+    // 1) Ripristina subito l'ultima posizione nota (UX immediata)
+    await _restoreCachedUserLocationAndMoveMap();
+
     try {
       bool serviceEnabled;
       PermissionStatus permissionGranted;
@@ -238,6 +300,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
         });
         
         // Ottieni la posizione e fai zoom automatico
+        _startLocationStreamIfPossible();
         await _zoomToUserLocation();
       }
     } catch (e) {
@@ -250,19 +313,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
   
   Future<void> _zoomToUserLocation() async {
     try {
-      // Se abbiamo già la posizione salvata, usa quella (più veloce)
-      if (_userLocation != null) {
-        await _animateToLocation(_userLocation!, MapConfig.userLocationZoom);
-        return;
-      }
-
-      // Altrimenti richiedi i permessi se necessario
-      if (!_locationPermissionGranted) {
-        await _requestLocationPermissionAndZoom();
-        if (!_locationPermissionGranted) {
-          return;
-        }
-      }
+      if (!_locationPermissionGranted) return;
 
       final locationData = await _location.getLocation();
       if (locationData.latitude != null && locationData.longitude != null) {
@@ -271,10 +322,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
           locationData.longitude!,
         );
         
-        // Salva la posizione dell'utente
-        setState(() {
-          _userLocation = userLatLng;
-        });
+        await _updateUserLocation(userLatLng, animate: true);
         
         // Zoom con animazione smooth
         await _animateToLocation(userLatLng, MapConfig.userLocationZoom);
@@ -290,18 +338,26 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     }
   }
 
-  Future<void> _loadLockers() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _loadLockers({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    } else {
+      setState(() {
+        _errorMessage = null;
+      });
+    }
 
     try {
       final lockers = await _lockerRepository.getLockers();
       setState(() {
-        _lockers = lockers;
+        _allLockers = lockers;
+        _applyLocalFilters();
         _isLoading = false;
       });
+      await _saveLockersCache(lockers);
     } catch (e) {
       setState(() {
         _errorMessage = 'Errore nel caricamento dei lockers: ${e.toString()}';
@@ -310,72 +366,225 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
     }
   }
 
-  Future<void> _searchLockers(String query) async {
-    setState(() {
-      _searchQuery = query;
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
+  Future<void> _restoreCachedLockers() async {
     try {
-      final lockers = query.isEmpty
-          ? await _lockerRepository.getLockers()
-          : await _lockerRepository.searchLockers(query);
-      
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_lockersCacheKey);
+      if (raw == null || raw.isEmpty) return;
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      final lockers = decoded
+          .map((e) => Locker.fromJson(e as Map<String, dynamic>))
+          .toList();
+      if (!mounted) return;
       setState(() {
-        _lockers = lockers;
-        _isLoading = false;
+        _allLockers = lockers;
+        _applyLocalFilters();
+        // non forziamo _isLoading=false qui: ci pensa _loadLockers(showLoading: _lockers.isEmpty)
       });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Errore nella ricerca: ${e.toString()}';
-        _isLoading = false;
-      });
+    } catch (_) {
+      // ignora cache corrotta
     }
   }
 
+  Future<void> _saveLockersCache(List<Locker> lockers) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final payload = lockers
+          .map((l) => {
+                'id': l.id,
+                'name': l.name,
+                'position': {'lat': l.position.latitude, 'lng': l.position.longitude},
+                // LockerType.fromJson usa stringhe backend (sportivi/personali/...), non il nome enum
+                'type': l.type.label.toLowerCase().replaceAll('-', ''),
+                'totalCells': l.totalCells,
+                'availableCells': l.availableCells,
+                'isActive': l.isActive,
+                'description': l.description,
+              })
+          .toList();
+      await prefs.setString(_lockersCacheKey, jsonEncode(payload));
+    } catch (_) {}
+  }
+
+  void _applyLocalFilters() {
+    final q = _searchQuery.trim().toLowerCase();
+    final hasQuery = q.isNotEmpty;
+
+    final filtered = _allLockers.where((locker) {
+      final typeOk = _selectedFilters.isEmpty || _selectedFilters.contains(locker.type);
+      if (!typeOk) return false;
+
+      if (!hasQuery) return true;
+      final nameMatch = locker.name.toLowerCase().contains(q);
+      final descMatch = (locker.description ?? '').toLowerCase().contains(q);
+      return nameMatch || descMatch;
+    }).toList();
+
+    _lockers = filtered;
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      _searchQuery = value;
+    });
+
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (!mounted) return;
+      setState(() {
+        _applyLocalFilters();
+      });
+    });
+  }
+
+  List<Marker> _buildLockerMarkers({
+    required List<Locker> lockers,
+    required bool isDark,
+    required String selectedLockerId,
+  }) {
+    // Cache markers per evitare rebuild pesanti su ogni setState (mappa più smooth)
+    final idsKey = lockers.map((l) => l.id).join('|');
+    final key = '${isDark ? 'dark' : 'light'}::$idsKey::sel=$selectedLockerId';
+    if (key == _cachedLockerMarkersKey) {
+      return _cachedLockerMarkers;
+    }
+
+    final markers = lockers.map((locker) {
+      return Marker(
+        point: locker.position,
+        width: 50,
+        height: 50,
+        child: RepaintBoundary(
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedLocker = locker;
+                _showCategoryFilters = false;
+              });
+            },
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              scale: selectedLockerId == locker.id ? 1.08 : 1.0,
+              child: Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primary(isDark),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: AppColors.card(isDark),
+                    width: 3,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.shadowColor(isDark).withOpacity(0.25),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  locker.type.icon,
+                  color: CupertinoColors.white,
+                  size: 24,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }).toList();
+
+    _cachedLockerMarkersKey = key;
+    _cachedLockerMarkers = markers;
+    return markers;
+  }
+
+  Future<void> _restoreCachedUserLocationAndMoveMap() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final lat = prefs.getDouble(_userLocationLatKey);
+      final lng = prefs.getDouble(_userLocationLngKey);
+      if (lat == null || lng == null) return;
+      final cached = LatLng(lat, lng);
+      if (!mounted) return;
+      setState(() {
+        _userLocation = cached;
+      });
+      // Move immediato (senza animazione) per evitare “salti” al primo frame
+      _mapController.move(cached, _mapController.camera.zoom);
+    } catch (_) {}
+  }
+
+  Future<void> _persistUserLocation(LatLng loc) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_userLocationLatKey, loc.latitude);
+      await prefs.setDouble(_userLocationLngKey, loc.longitude);
+    } catch (_) {}
+  }
+
+  Future<void> _updateUserLocation(LatLng newLoc, {required bool animate}) async {
+    final old = _userLocation;
+    // Aggiorna marker solo se cambia davvero (riduce setState e repaint)
+    if (old != null) {
+      final meters = _distance.as(LengthUnit.Meter, old, newLoc);
+      if (meters < 8) return; // soglia anti-jitter
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _userLocation = newLoc;
+    });
+    await _persistUserLocation(newLoc);
+
+    // Se l'utente sta interagendo con la mappa, non forzare l'animazione
+    final gestureAt = _lastMapGestureAt;
+    final recentlyGesturing =
+        gestureAt != null && DateTime.now().difference(gestureAt) < const Duration(seconds: 2);
+    if (!animate || recentlyGesturing) return;
+
+    // Non cambiare zoom automaticamente durante tracking; solo centra con animazione leggera
+    await _animateToLocation(newLoc, _mapController.camera.zoom);
+  }
+
+  void _startLocationStreamIfPossible() {
+    if (!_locationPermissionGranted) return;
+    if (_locationSub != null) return;
+
+    _locationSub = _location.onLocationChanged.listen((data) {
+      final lat = data.latitude;
+      final lng = data.longitude;
+      if (lat == null || lng == null) return;
+      final loc = LatLng(lat, lng);
+
+      // Debounce: evita aggiornamenti troppo frequenti (riduce lag)
+      _locationDebounce?.cancel();
+      _locationDebounce = Timer(const Duration(milliseconds: 600), () {
+        _updateUserLocation(loc, animate: true);
+      });
+    });
+  }
+
+  Future<void> _searchLockers(String query) async {
+    // Deprecated: mantenuto per compatibilità, ora usiamo solo filtro locale con debounce.
+    _onSearchChanged(query);
+  }
+
   Future<void> _filterByType(LockerType type, bool isSelected) async {
+    // Premium UX: filtri istantanei (solo locale, niente fetch) e senza overlay blocante
     setState(() {
       if (isSelected) {
         _selectedFilters.remove(type);
       } else {
         _selectedFilters.add(type);
       }
-      _isLoading = true;
+      _applyLocalFilters();
     });
-
-    try {
-      List<Locker> lockers;
-      
-      if (_selectedFilters.isEmpty) {
-        lockers = await _lockerRepository.getLockers();
-      } else if (_selectedFilters.length == 1) {
-        lockers = await _lockerRepository.getLockersByType(_selectedFilters.first);
-      } else {
-        // Filtro multiplo: carica tutti e filtra lato client
-        final allLockers = await _lockerRepository.getLockers();
-        lockers = allLockers
-            .where((l) => _selectedFilters.contains(l.type))
-            .toList();
-      }
-      
-      setState(() {
-        _lockers = lockers;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _errorMessage = 'Errore nel filtro: ${e.toString()}';
-        _isLoading = false;
-      });
-    }
   }
 
   List<Locker> get _filteredLockers {
-    if (_selectedFilters.isEmpty) {
-      return _lockers;
-    }
-    return _lockers.where((l) => _selectedFilters.contains(l.type)).toList();
+    // Ora _lockers è già filtrata localmente (query + filtri)
+    return _lockers;
   }
 
   Widget _getCurrentPage() {
@@ -425,6 +634,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                 interactionOptions: const InteractionOptions(
                   flags: InteractiveFlag.all,
                 ),
+                onPositionChanged: (position, hasGesture) {
+                  if (hasGesture) {
+                    _lastMapGestureAt = DateTime.now();
+                  }
+                },
                 onTap: (_, __) {
                   // Chiudi la tastiera quando si tocca la mappa
                   FocusScope.of(context).unfocus();
@@ -449,44 +663,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                 ),
                 // Marker dei lockers
                 if (!_isLoading && _errorMessage == null)
-                  MarkerLayer(
-                    markers: filteredLockers.map((locker) {
-                      return Marker(
-                        point: locker.position,
-                        width: 50,
-                        height: 50,
-                        child: GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedLocker = locker;
-                              _showCategoryFilters = false;
-                            });
-                          },
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: AppColors.primary(isDark),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: AppColors.card(isDark),
-                                width: 3,
-                              ),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: AppColors.shadowColor(isDark),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                            child: Icon(
-                              locker.type.icon,
-                              color: CupertinoColors.white,
-                              size: 24,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOut,
+                    switchOutCurve: Curves.easeIn,
+                    child: MarkerLayer(
+                      key: ValueKey<String>(
+                        '${isDark ? 'd' : 'l'}-${filteredLockers.length}-${_selectedLocker?.id ?? ''}',
+                      ),
+                      markers: _buildLockerMarkers(
+                        lockers: filteredLockers,
+                        isDark: isDark,
+                        selectedLockerId: _selectedLocker?.id ?? '',
+                      ),
+                    ),
                   ),
                 // Marker posizione utente
                 if (_userLocation != null)
@@ -539,12 +729,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
             ),
           ),
           // Overlay di loading
-          if (_isLoading)
+          if (_isLoading && _allLockers.isEmpty)
             Positioned.fill(
-              child: Container(
-                color: AppColors.overlayLoading(isDark),
-                child: const Center(
-                  child: CupertinoActivityIndicator(radius: 20),
+              child: IgnorePointer(
+                ignoring: true,
+                child: Container(
+                  color: AppColors.overlayLoading(isDark).withOpacity(0.55),
+                  child: const Center(
+                    child: CupertinoActivityIndicator(radius: 20),
+                  ),
                 ),
               ),
             ),
@@ -766,7 +959,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                                                       isDark),
                                                 ),
                                                 onChanged: (value) {
-                                                  _searchLockers(value);
+                                                  _onSearchChanged(value);
                                                 },
                                                 onTap: () {
                                                   setState(() {
@@ -901,190 +1094,193 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin, Widg
                 ),
               ),
               const Spacer(),
-              // Card dettagli locker se selezionato
-              if (_selectedLocker != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: AppColors.surface(isDark),
+              // Card bottom premium: transizione smooth tra "info" e "locker selezionato"
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 240),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) {
+                    final slide = Tween<Offset>(
+                      begin: const Offset(0, 0.08),
+                      end: Offset.zero,
+                    ).animate(animation);
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(position: slide, child: child),
+                    );
+                  },
+                  child: _selectedLocker != null
+                      ? ClipRRect(
+                          key: ValueKey<String>('selected-${_selectedLocker!.id}'),
                           borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.iconBackground(isDark),
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    child: Icon(
-                                      _selectedLocker!.type.icon,
-                                      color: AppColors.primary(isDark),
-                                      size: 24,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _selectedLocker!.name,
-                                          style: AppTextStyles.title(isDark),
-                                        ),
-                                        Text(
-                                          _selectedLocker!.type.label,
-                                          style: AppTextStyles.bodySecondary(
-                                              isDark),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  CupertinoButton(
-                                    padding: EdgeInsets.zero,
-                                    minSize: 0,
-                                    onPressed: () {
-                                      setState(() {
-                                        _selectedLocker = null;
-                                      });
-                                    },
-                                    child: const Icon(
-                                      CupertinoIcons.xmark_circle_fill,
-                                      size: 24,
-                                    ),
-                                  ),
-                                ],
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: AppColors.surface(isDark),
+                                borderRadius: BorderRadius.circular(18),
                               ),
-                              if (_selectedLocker!.description != null) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  _selectedLocker!.description!,
-                                  style: AppTextStyles.bodySecondary(isDark),
-                                ),
-                              ],
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
                                       children: [
-                                        Text(
-                                          'Disponibilità',
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: AppColors.textSecondary(
-                                                isDark),
+                                        Container(
+                                          padding: const EdgeInsets.all(8),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.iconBackground(isDark),
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                          child: Icon(
+                                            _selectedLocker!.type.icon,
+                                            color: AppColors.primary(isDark),
+                                            size: 24,
                                           ),
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${_selectedLocker!.availableCells}/${_selectedLocker!.totalCells} celle',
-                                          style: AppTextStyles.body(isDark),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                _selectedLocker!.name,
+                                                style: AppTextStyles.title(isDark).copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              Text(
+                                                _selectedLocker!.type.label,
+                                                style: AppTextStyles.bodySecondary(isDark),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        CupertinoButton(
+                                          padding: EdgeInsets.zero,
+                                          minSize: 0,
+                                          onPressed: () {
+                                            setState(() {
+                                              _selectedLocker = null;
+                                            });
+                                          },
+                                          child: const Icon(
+                                            CupertinoIcons.xmark_circle_fill,
+                                            size: 24,
+                                          ),
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  CupertinoButton(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 8,
-                                    ),
-                                    color: AppColors.primary(isDark),
-                                    borderRadius: BorderRadius.circular(20),
-                                    onPressed: () {
-                                      // Naviga alla pagina di dettaglio del locker
-                                      Navigator.of(context).push(
-                                        CupertinoPageRoute(
-                                          builder: (context) => LockerDetailPage(
-                                            themeManager: widget.themeManager,
-                                            locker: _selectedLocker!,
-                                            isAuthenticated: _isAuthenticated,
-                                            onAuthenticationChanged: (isAuthenticated) {
-                                              setState(() {
-                                                _isAuthenticated = isAuthenticated;
-                                              });
-                                            },
+                                    if (_selectedLocker!.description != null) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _selectedLocker!.description!,
+                                        style: AppTextStyles.bodySecondary(isDark),
+                                      ),
+                                    ],
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Disponibilità',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: AppColors.textSecondary(isDark),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                '${_selectedLocker!.availableCells}/${_selectedLocker!.totalCells} celle',
+                                                style: AppTextStyles.body(isDark),
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                      );
-                                    },
-                                    child: const Text(
-                                      'Apri',
-                                      style: TextStyle(
-                                        color: CupertinoColors.white,
-                                        fontWeight: FontWeight.w600,
+                                        CupertinoButton(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 8,
+                                          ),
+                                          color: AppColors.primary(isDark),
+                                          borderRadius: BorderRadius.circular(20),
+                                          onPressed: () {
+                                            Navigator.of(context).push(
+                                              CupertinoPageRoute(
+                                                builder: (context) => LockerDetailPage(
+                                                  themeManager: widget.themeManager,
+                                                  locker: _selectedLocker!,
+                                                  isAuthenticated: _isAuthenticated,
+                                                  onAuthenticationChanged: (isAuthenticated) {
+                                                    setState(() {
+                                                      _isAuthenticated = isAuthenticated;
+                                                    });
+                                                  },
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          child: const Text(
+                                            'Apri',
+                                            style: TextStyle(
+                                              color: CupertinoColors.white,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        )
+                      : ClipRRect(
+                          key: const ValueKey<String>('info-card'),
+                          borderRadius: BorderRadius.circular(18),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: AppColors.surface(isDark),
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      CupertinoIcons.location_solid,
+                                      color: AppColors.primary(isDark),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        _isLoading
+                                            ? 'Caricamento lockers...'
+                                            : 'Area corrente: Trento\n${_lockers.length} lockers disponibili. Tocca un marker per i dettagli.',
+                                        style: TextStyle(
+                                          color: AppColors.text(isDark),
+                                          fontSize: 13,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                // Card informativa sopra la bottom bar (se nessun locker selezionato)
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(18),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: AppColors.surface(isDark),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Row(
-                            children: [
-                              Icon(
-                                CupertinoIcons.location_solid,
-                                color: AppColors.primary(isDark),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  _isLoading
-                                      ? 'Caricamento lockers...'
-                                      : 'Area corrente: Trento\n${_lockers.length} lockers disponibili. Tocca un marker per i dettagli.',
-                                  style: TextStyle(
-                                    color: AppColors.text(isDark),
-                                    fontSize: 13,
-                                  ),
+                                  ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
+              ),
             ],
             ),
           ),
