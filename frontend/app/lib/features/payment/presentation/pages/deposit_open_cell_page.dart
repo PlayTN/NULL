@@ -78,13 +78,6 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   Timer? _doorCloseTimer;
   ActiveCell? _activeCell;
   final Location _location = Location();
-  
-  // ========== MOCK BLUETOOTH TESTING - RIMUOVERE IN PRODUZIONE ==========
-  // Flag per attivare modalità mock Bluetooth (simula ricerca e ritrovamento senza dispositivo reale)
-  // In produzione: impostare a false o rimuovere completamente
-  static const bool _useBluetoothMock = true; // Cambiare a false per usare Bluetooth reale
-  Timer? _bluetoothMockTimer; // Timer per simulare ritrovamento dispositivo
-  // ========== FINE MOCK BLUETOOTH ==========
 
   @override
   void initState() {
@@ -169,7 +162,6 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   @override
   void dispose() {
     _doorCloseTimer?.cancel();
-    _bluetoothMockTimer?.cancel(); // ========== MOCK BLUETOOTH - RIMUOVERE IN PRODUZIONE ==========
     _bluetoothStateSubscription?.cancel();
     _scanResultsSubscription?.cancel();
     FlutterBluePlus.stopScan();
@@ -186,40 +178,8 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
       return;
     }
     
-    // ========== MOCK BLUETOOTH TESTING - RIMUOVERE IN PRODUZIONE ==========
-    if (_useBluetoothMock) {
-      debugPrint('🔧 [MOCK BLUETOOTH] Modalità mock attiva - simulo ricerca e ritrovamento');
-      setState(() {
-        _isBluetoothEnabled = true;
-        _isScanning = true;
-        _statusMessage = 'Ricerca locker in corso... (modalità mock)';
-      });
-      
-      // Simula ricerca per 2 secondi, poi ritrova il dispositivo
-      _bluetoothMockTimer?.cancel();
-      _bluetoothMockTimer = Timer(const Duration(seconds: 2), () {
-        if (mounted && _isScanning && !_lockerFound) {
-          debugPrint('✅ [MOCK BLUETOOTH] Simulo ritrovamento dispositivo con UUID: $_bluetoothUuid');
-          
-          // Simula ritrovamento dispositivo
-          setState(() {
-            _lockerFound = true;
-            _isScanning = false;
-            _statusMessage = 'Dispositivo trovato. Verifica in corso...';
-          });
-          
-          // Simula verifica con backend usando UUID dal database
-          // Usa UUID e nome dal backend, RSSI simulato (-55 dBm = vicino)
-          _verifyPairingWithBackend(
-            bluetoothUuid: _bluetoothUuid!,
-            deviceName: _bluetoothName ?? 'Locker-Mock-Device',
-            rssi: -55, // RSSI simulato (vicino)
-          );
-        }
-      });
-      return;
-    }
-    // ========== FINE MOCK BLUETOOTH ==========
+    // NOTA: Il mock Bluetooth è ora gestito nel backend tramite variabile d'ambiente BLUETOOTH_MOCK_MODE
+    // Il frontend usa sempre Bluetooth reale, ma il backend può bypassare le verifiche in modalità mock
     
     try {
       final adapterState = await FlutterBluePlus.adapterState.first;

@@ -59,4 +59,12 @@ class AppColors {
   // Colore warning (arancione/giallo)
   static Color warning(bool isDark) =>
       isDark ? const Color(0xFFFF9500) : const Color(0xFFFF9500);
+  
+  // Colore error (rosso)
+  static Color error(bool isDark) =>
+      isDark ? const Color(0xFFFF3B30) : const Color(0xFFFF3B30);
+  
+  // Colore divider (separatore)
+  static Color divider(bool isDark) =>
+      isDark ? const Color(0xFF48484A) : const Color(0xFFC7C7CC);
 }

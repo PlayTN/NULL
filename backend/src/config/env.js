@@ -61,6 +61,14 @@ const config = {
   // App info
   appName: 'NULL Backend',
   appVersion: '1.0.0',
+  
+  // ========== MOCK MODE - SOLO PER TESTING/DEVELOPMENT ==========
+  // ATTENZIONE: Attivare solo durante sviluppo/testing
+  // In produzione: NON impostare questa variabile o impostarla a 'false'
+  // Permette di bypassare verifiche Bluetooth (UUID, RSSI, geolocalizzazione)
+  // per testare senza dispositivi fisici
+  bluetoothMockMode: process.env.BLUETOOTH_MOCK_MODE === 'true',
+  // ========== FINE MOCK MODE ==========
 };
 
 // Validate in production

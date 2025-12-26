@@ -284,5 +284,40 @@ class CellRepositoryMock implements CellRepository {
     
     // Simula apertura cella (in produzione il backend invierebbe comando al locker fisico)
   }
+
+  @override
+  Future<DoorStatus> getDoorStatus(String cellId) async {
+    await Future.delayed(_apiDelay);
+    
+    // ⚠️ SOLO PER TESTING: Simula stato sportello
+    // TODO: Quando il backend sarà pronto, sostituire con:
+    // final response = await _apiClient.get(
+    //   ApiConfig.doorStatusEndpoint.replaceAll(':cellId', cellId),
+    // );
+    // return DoorStatus.fromJson(response);
+    
+    // Trova la cella mock
+    final cell = _mockActiveCells.firstWhere(
+      (c) => c.cellId == cellId,
+      orElse: () => throw Exception('Cella non trovata: $cellId'),
+    );
+    
+    // Simula stato: aperta dopo 3 secondi, chiusa dopo 5 secondi
+    final now = DateTime.now();
+    final secondsSinceStart = now.difference(cell.startTime).inSeconds;
+    
+    // Mock: dopo 3 secondi è aperta, dopo 5 secondi è chiusa
+    final doorOpened = secondsSinceStart >= 3;
+    final doorClosed = secondsSinceStart >= 5;
+    
+    return DoorStatus(
+      cellId: cellId,
+      doorOpened: doorOpened,
+      doorClosed: doorClosed,
+      openedAt: doorOpened ? cell.startTime.add(const Duration(seconds: 3)) : null,
+      closedAt: doorClosed ? cell.startTime.add(const Duration(seconds: 5)) : null,
+      secondsSinceOpen: doorOpened ? secondsSinceStart - 3 : null,
+    );
+  }
 }
 

@@ -83,13 +83,6 @@ class _OpenCellPageState extends State<OpenCellPage> {
   final Location _location = Location();
   int _doorOpenSeconds = 0; // Secondi trascorsi dall'apertura
   bool _doorCloseTimeout = false; // Timeout chiusura sportello
-  
-  // ========== MOCK BLUETOOTH TESTING - RIMUOVERE IN PRODUZIONE ==========
-  // Flag per attivare modalità mock Bluetooth (simula ricerca e ritrovamento senza dispositivo reale)
-  // In produzione: impostare a false o rimuovere completamente
-  static const bool _useBluetoothMock = true; // Cambiare a false per usare Bluetooth reale
-  Timer? _bluetoothMockTimer; // Timer per simulare ritrovamento dispositivo
-  // ========== FINE MOCK BLUETOOTH ==========
 
   @override
   void initState() {
@@ -158,7 +151,6 @@ class _OpenCellPageState extends State<OpenCellPage> {
   void dispose() {
     _doorCloseTimer?.cancel();
     _doorStatusPollingTimer?.cancel();
-    _bluetoothMockTimer?.cancel(); // ========== MOCK BLUETOOTH - RIMUOVERE IN PRODUZIONE ==========
     _bluetoothStateSubscription?.cancel();
     _scanResultsSubscription?.cancel();
     FlutterBluePlus.stopScan();
@@ -174,6 +166,9 @@ class _OpenCellPageState extends State<OpenCellPage> {
       });
       return;
     }
+    
+    // NOTA: Il mock Bluetooth è ora gestito nel backend tramite variabile d'ambiente BLUETOOTH_MOCK_MODE
+    // Il frontend usa sempre Bluetooth reale, ma il backend può bypassare le verifiche in modalità mock
     
     try {
       // Verifica lo stato corrente

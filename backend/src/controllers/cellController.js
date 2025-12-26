@@ -8,6 +8,7 @@ import {
 } from '../middleware/errorHandler.js';
 import logger from '../utils/logger.js';
 import { savePhoto } from '../utils/photoStorage.js';
+import config from '../config/env.js';
 
 /**
  * Tariffe per grandezza cella (da Sezione 3)
@@ -713,79 +714,93 @@ export async function verifyBluetoothPairing(req, res, next) {
       );
     }
 
-    // 2. Verifica che UUID corrisponda al locker (CONTROLLO CRITICO - solo backend)
-    // SICUREZZA: Richiediamo solo UUID esatto. Il nome Bluetooth è facilmente spoofabile e non viene usato.
-    // Normalizza UUID (rimuovi trattini e due punti per confronto)
-    const normalizeUuid = (uuid) => uuid.replace(/[-:]/g, '').toLowerCase();
-    const lockerUuidNormalized = normalizeUuid(locker.bluetoothUuid);
-    const receivedUuidNormalized = normalizeUuid(bluetoothUuid);
-
-    // Verifica UUID esatto normalizzato (unico metodo di verifica sicuro)
-    if (lockerUuidNormalized !== receivedUuidNormalized) {
-      throw new ValidationError(
-        'UUID Bluetooth non corrisponde al locker richiesto. Verifica di essere vicino al locker corretto e che il Bluetooth sia attivo.'
+    // ========== MOCK MODE - SOLO PER TESTING/DEVELOPMENT ==========
+    // Se BLUETOOTH_MOCK_MODE=true, bypassa tutte le verifiche di prossimità
+    // ATTENZIONE: Usare solo durante sviluppo/testing, NON in produzione
+    if (config.bluetoothMockMode) {
+      logger.warn(
+        `[MOCK MODE] Bluetooth mock attivo - bypass verifiche UUID/RSSI/geolocalizzazione per locker ${lockerId}`
       );
-    }
+      // In modalità mock, salta tutte le verifiche di prossimità
+      // ma verifica comunque che locker e cella esistano
+    } else {
+      // ========== VERIFICHE NORMALI (PRODUZIONE) ==========
+      // 2. Verifica che UUID corrisponda al locker (CONTROLLO CRITICO - solo backend)
+      // SICUREZZA: Richiediamo solo UUID esatto. Il nome Bluetooth è facilmente spoofabile e non viene usato.
+      // Normalizza UUID (rimuovi trattini e due punti per confronto)
+      const normalizeUuid = (uuid) => uuid.replace(/[-:]/g, '').toLowerCase();
+      const lockerUuidNormalized = normalizeUuid(locker.bluetoothUuid);
+      const receivedUuidNormalized = normalizeUuid(bluetoothUuid);
 
-    // 3. Verifica prossimità tramite RSSI (priorità - più affidabile del GPS)
-    // RSSI tipico: -30 a -90 dBm
-    // -30 a -50: molto vicino
-    // -50 a -70: vicino
-    // -70 a -90: lontano
-    let rssiValid = false;
-    if (bluetoothRssi !== undefined && bluetoothRssi !== null) {
-      const MAX_RSSI_THRESHOLD = -80; // Soglia massima (più negativo = più lontano)
-      if (bluetoothRssi < MAX_RSSI_THRESHOLD) {
+      // Verifica UUID esatto normalizzato (unico metodo di verifica sicuro)
+      if (lockerUuidNormalized !== receivedUuidNormalized) {
         throw new ValidationError(
-          'Dispositivo troppo distante dal locker. Avvicinati per continuare.'
+          'UUID Bluetooth non corrisponde al locker richiesto. Verifica di essere vicino al locker corretto e che il Bluetooth sia attivo.'
         );
       }
-      // RSSI valido indica prossimità (più affidabile del GPS)
-      rssiValid = true;
-    }
 
-    // 4. Verifica prossimità tramite geolocalizzazione (solo se RSSI non disponibile o dubbio)
-    // NOTA: La geolocalizzazione può essere imprecisa (GPS indoor, errori di posizionamento)
-    // Se RSSI è buono (es. > -70 dBm), la geolocalizzazione è solo un controllo aggiuntivo
-    // e non dovrebbe bloccare se c'è un RSSI valido
-    if (geolocation && geolocation.lat && geolocation.lng) {
-      const lockerLat = locker.coordinate.lat;
-      const lockerLng = locker.coordinate.lng;
-      const userLat = geolocation.lat;
-      const userLng = geolocation.lng;
-
-      // Calcola distanza in metri (formula Haversine)
-      const R = 6371000; // Raggio Terra in metri
-      const dLat = ((userLat - lockerLat) * Math.PI) / 180;
-      const dLng = ((userLng - lockerLng) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lockerLat * Math.PI) / 180) *
-          Math.cos((userLat * Math.PI) / 180) *
-          Math.sin(dLng / 2) *
-          Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c; // Distanza in metri
-
-      // Se RSSI è valido e buono (vicino), la geolocalizzazione è solo informativa
-      // Se RSSI non è disponibile, usa geolocalizzazione con soglia più permissiva
-      const MAX_DISTANCE_METERS = rssiValid ? 200 : 50; // 200m se RSSI valido, 50m altrimenti
-      
-      if (distance > MAX_DISTANCE_METERS) {
-        // Se RSSI è valido e buono, log warning ma non bloccare
-        if (rssiValid && bluetoothRssi > -70) {
-          logger.warn(
-            `Geolocalizzazione indica distanza ${Math.round(distance)}m ma RSSI ${bluetoothRssi} dBm indica prossimità. Usando RSSI come verifica principale.`
-          );
-          // Non bloccare se RSSI è buono
-        } else {
-          // Se RSSI non è valido o è debole, usa geolocalizzazione
+      // 3. Verifica prossimità tramite RSSI (priorità - più affidabile del GPS)
+      // RSSI tipico: -30 a -90 dBm
+      // -30 a -50: molto vicino
+      // -50 a -70: vicino
+      // -70 a -90: lontano
+      let rssiValid = false;
+      if (bluetoothRssi !== undefined && bluetoothRssi !== null) {
+        const MAX_RSSI_THRESHOLD = -80; // Soglia massima (più negativo = più lontano)
+        if (bluetoothRssi < MAX_RSSI_THRESHOLD) {
           throw new ValidationError(
-            `Troppo distante dal locker (${Math.round(distance)}m). Avvicinati per continuare.`
+            'Dispositivo troppo distante dal locker. Avvicinati per continuare.'
           );
         }
+        // RSSI valido indica prossimità (più affidabile del GPS)
+        rssiValid = true;
       }
+
+      // 4. Verifica prossimità tramite geolocalizzazione (solo se RSSI non disponibile o dubbio)
+      // NOTA: La geolocalizzazione può essere imprecisa (GPS indoor, errori di posizionamento)
+      // Se RSSI è buono (es. > -70 dBm), la geolocalizzazione è solo un controllo aggiuntivo
+      // e non dovrebbe bloccare se c'è un RSSI valido
+      if (geolocation && geolocation.lat && geolocation.lng) {
+        const lockerLat = locker.coordinate.lat;
+        const lockerLng = locker.coordinate.lng;
+        const userLat = geolocation.lat;
+        const userLng = geolocation.lng;
+
+        // Calcola distanza in metri (formula Haversine)
+        const R = 6371000; // Raggio Terra in metri
+        const dLat = ((userLat - lockerLat) * Math.PI) / 180;
+        const dLng = ((userLng - lockerLng) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((lockerLat * Math.PI) / 180) *
+            Math.cos((userLat * Math.PI) / 180) *
+            Math.sin(dLng / 2) *
+            Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c; // Distanza in metri
+
+        // Se RSSI è valido e buono (vicino), la geolocalizzazione è solo informativa
+        // Se RSSI non è disponibile, usa geolocalizzazione con soglia più permissiva
+        const MAX_DISTANCE_METERS = rssiValid ? 200 : 50; // 200m se RSSI valido, 50m altrimenti
+        
+        if (distance > MAX_DISTANCE_METERS) {
+          // Se RSSI è valido e buono, log warning ma non bloccare
+          if (rssiValid && bluetoothRssi > -70) {
+            logger.warn(
+              `Geolocalizzazione indica distanza ${Math.round(distance)}m ma RSSI ${bluetoothRssi} dBm indica prossimità. Usando RSSI come verifica principale.`
+            );
+            // Non bloccare se RSSI è buono
+          } else {
+            // Se RSSI non è valido o è debole, usa geolocalizzazione
+            throw new ValidationError(
+              `Troppo distante dal locker (${Math.round(distance)}m). Avvicinati per continuare.`
+            );
+          }
+        }
+      }
+      // ========== FINE VERIFICHE NORMALI ==========
     }
+    // ========== FINE MOCK MODE ==========
 
     // 5. Verifica che la cella esista e sia disponibile
     const cell = await Cell.findOne({
