@@ -1018,16 +1018,31 @@ export async function getDoorStatus(req, res, next) {
     }
 
     // Trova Noleggio per cellaId e utenteId
-    const noleggio = await Noleggio.findOne({
+    // IMPORTANTE: Non filtrare per stato 'attivo' perché potrebbe essere necessario
+    // verificare lo stato anche se il noleggio è in altri stati
+    let noleggio = await Noleggio.findOne({
       cellaId: cellId,
       utenteId: userId,
-      stato: 'attivo',
-    });
+    }).sort({ dataInizio: -1 }); // Prendi il più recente
+
+    // Se non trovato, prova a cercare solo per cellaId (fallback)
+    if (!noleggio) {
+      noleggio = await Noleggio.findOne({
+        cellaId: cellId,
+      }).sort({ dataInizio: -1 });
+    }
 
     if (!noleggio) {
       throw new NotFoundError(
-        `Noleggio attivo non trovato per cella ${cellId} e utente corrente`
+        `Noleggio non trovato per cella ${cellId} e utente corrente`
       );
+    }
+
+    // Ricarica il noleggio dal database per assicurarsi di avere lo stato più recente
+    // Questo è importante perché il mock potrebbe aver aggiornato lo stato
+    const noleggioFresh = await Noleggio.findById(noleggio._id);
+    if (noleggioFresh) {
+      noleggio = noleggioFresh;
     }
 
     // ========== MOCK MODE - SOLO PER TESTING ==========
@@ -1037,8 +1052,8 @@ export async function getDoorStatus(req, res, next) {
     // ========== FINE MOCK MODE ==========
 
     // Log per debug (rimuovere in produzione se troppo verboso)
-    logger.debug(
-      `[DOOR-STATUS] Richiesta stato per cella ${cellId} - Utente: ${userId} - Noleggio: ${noleggio.noleggioId} - cellaAperta: ${noleggio.cellaAperta}, cellaChiusa: ${noleggio.cellaChiusa}`
+    logger.info(
+      `[DOOR-STATUS] Richiesta stato per cella ${cellId} - Utente: ${userId} - Noleggio: ${noleggio.noleggioId} - cellaAperta: ${noleggio.cellaAperta}, cellaChiusa: ${noleggio.cellaChiusa}, stato: ${noleggio.stato}`
     );
 
     // Restituisci stato sportello
@@ -1057,8 +1072,8 @@ export async function getDoorStatus(req, res, next) {
       },
     };
 
-    logger.debug(
-      `[DOOR-STATUS] Risposta: doorOpened=${response.data.doorOpened}, doorClosed=${response.data.doorClosed}, secondsSinceOpen=${response.data.secondsSinceOpen}`
+    logger.info(
+      `[DOOR-STATUS] Risposta inviata: doorOpened=${response.data.doorOpened}, doorClosed=${response.data.doorClosed}, secondsSinceOpen=${response.data.secondsSinceOpen}`
     );
 
     res.json(response);

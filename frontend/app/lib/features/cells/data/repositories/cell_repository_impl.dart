@@ -314,6 +314,8 @@ class CellRepositoryImpl implements CellRepository {
       
       final doorStatus = DoorStatus.fromJson(data);
       debugPrint('✅ [DOOR STATUS] Parsing completato: doorOpened=${doorStatus.doorOpened}, doorClosed=${doorStatus.doorClosed}, secondsSinceOpen=${doorStatus.secondsSinceOpen}');
+      debugPrint('✅ [DOOR STATUS] Tipo doorClosed: ${doorStatus.doorClosed.runtimeType}, Valore: ${doorStatus.doorClosed}');
+      debugPrint('✅ [DOOR STATUS] Verifica doorClosed == true: ${doorStatus.doorClosed == true}');
       
       return doorStatus;
     } on ApiException catch (e) {
