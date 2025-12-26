@@ -337,7 +337,7 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
           debugPrint('⏱️ [BLUETOOTH] Timeout scansione: locker non trovato');
           setState(() {
             _isScanning = false;
-            _statusMessage = 'Locker non trovato nelle vicinanze. Assicurati di essere vicino al locker e che il Bluetooth sia attivo sul dispositivo di test.';
+            _statusMessage = 'Locker non trovato nelle vicinanze.';
             _showRetryButton = true;
           });
           FlutterBluePlus.stopScan();

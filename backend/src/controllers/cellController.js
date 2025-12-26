@@ -680,14 +680,9 @@ export async function verifyBluetoothPairing(req, res, next) {
         
         // Se non c'è match esatto, verifica se il nome del dispositivo contiene il nome del locker
         // (utile per dispositivi con nomi come "Locker-001" vs "Locker-001-BLE")
-
-        // ------- PER TESTING APPLICAZIONE MESSO MATCHING A TRUE ----------
-        /*
         if (!nameMatch && deviceNameNormalized.includes(lockerNameNormalized)) {
           nameMatch = true;
-        }*/
-        //------------------------------------------------------------------
-      nameMatch = true;
+        }
       }
 
       if (!nameMatch) {
