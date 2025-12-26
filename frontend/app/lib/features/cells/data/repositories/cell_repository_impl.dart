@@ -53,6 +53,7 @@ class CellRepositoryImpl implements CellRepository {
   Future<ActiveCell> requestCell(
     String lockerId, {
     required String type,
+    int? duration, // Durata in ore (solo per deposito)
     String? photoBase64,
     Map<String, dynamic>? geolocation,
   }) async {
@@ -62,6 +63,9 @@ class CellRepositoryImpl implements CellRepository {
         'type': type,
       };
 
+      if (duration != null && duration > 0) {
+        body['duration'] = duration;
+      }
       if (photoBase64 != null && photoBase64.isNotEmpty) {
         body['photo'] = photoBase64;
       }
@@ -151,6 +155,8 @@ class CellRepositoryImpl implements CellRepository {
     int? bluetoothRssi,
     String? deviceName,
     Map<String, dynamic>? geolocation,
+    String? type, // Tipo: 'borrow', 'deposited', 'pickup'
+    int? duration, // Durata in ore (solo per deposito)
   }) async {
     try {
       final body = <String, dynamic>{
@@ -167,6 +173,12 @@ class CellRepositoryImpl implements CellRepository {
       }
       if (geolocation != null && geolocation.isNotEmpty) {
         body['geolocation'] = geolocation;
+      }
+      if (type != null && type.isNotEmpty) {
+        body['type'] = type;
+      }
+      if (duration != null && duration > 0) {
+        body['duration'] = duration;
       }
 
       debugPrint('📤 [API] Invio richiesta verifyBluetoothPairing: lockerId=$lockerId, cellId=$cellId, bluetoothUuid=$bluetoothUuid');

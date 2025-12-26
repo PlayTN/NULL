@@ -94,7 +94,7 @@ async function formatNoleggioAsActiveCell(noleggio) {
  */
 export async function requestCell(req, res, next) {
   try {
-    const { lockerId, type, photo } = req.body;
+    const { lockerId, type, photo, duration } = req.body; // duration in ore
     const userId = req.user.userId; // Da middleware auth
 
     // Validazione input
@@ -146,12 +146,33 @@ export async function requestCell(req, res, next) {
     const dataInizio = now;
     const oraInizio = formatTime(now);
 
-    // Calcola costo se tipo deposito
+    // Calcola dataFine e costo se tipo deposito
+    let dataFine = null;
     let costo = 0;
     if (tipoDB === 'deposito') {
-      // Calcolo costo basato su tariffe (default 1 ora)
+      // Durata in ore (default 24 ore se non specificata)
+      const durationHours = duration ? parseInt(duration, 10) : 24;
+      if (durationHours <= 0) {
+        throw new ValidationError('La durata deve essere maggiore di 0');
+      }
+      
+      // Calcola dataFine aggiungendo la durata
+      dataFine = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+      
+      // Calcolo costo basato su tariffe e durata
       const tariffa = TARIFFE[cell.grandezza] || TARIFFE.media;
-      costo = tariffa.perOra;
+      
+      // Se la durata è >= 24 ore, usa tariffa giornaliera, altrimenti oraria
+      if (durationHours >= 24) {
+        const days = Math.ceil(durationHours / 24);
+        costo = tariffa.perGiorno * days;
+      } else {
+        costo = tariffa.perOra * durationHours;
+      }
+      
+      logger.info(
+        `Calcolo costo deposito: durata=${durationHours}h, grandezza=${cell.grandezza}, costo=${costo}€`
+      );
     }
 
     // Genera noleggioId
@@ -170,6 +191,7 @@ export async function requestCell(req, res, next) {
       stato: 'attivo',
       dataInizio,
       oraInizio,
+      dataFine, // Scadenza per deposito (null per prestito/pickup)
       costo,
       bluetoothToken,
       geolocalizzazione,
@@ -770,6 +792,8 @@ export async function verifyBluetoothPairing(req, res, next) {
       bluetoothRssi,
       deviceName,
       geolocation,
+      type, // Tipo: 'borrow', 'deposited', 'pickup'
+      duration, // Durata in ore (solo per deposito)
     } = req.body;
     const userId = req.user.userId; // Da middleware auth
 
@@ -936,6 +960,35 @@ export async function verifyBluetoothPairing(req, res, next) {
     const dataInizio = now;
     const oraInizio = formatTime(now);
 
+    // Calcola dataFine e costo se tipo deposito
+    let dataFine = null;
+    let costo = 0;
+    if (tipoDB === 'deposito') {
+      // Durata in ore (default 24 ore se non specificata)
+      const durationHours = duration ? parseInt(duration, 10) : 24;
+      if (durationHours <= 0) {
+        throw new ValidationError('La durata deve essere maggiore di 0');
+      }
+      
+      // Calcola dataFine aggiungendo la durata
+      dataFine = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+      
+      // Calcolo costo basato su tariffe e durata
+      const tariffa = TARIFFE[cell.grandezza] || TARIFFE.media;
+      
+      // Se la durata è >= 24 ore, usa tariffa giornaliera, altrimenti oraria
+      if (durationHours >= 24) {
+        const days = Math.ceil(durationHours / 24);
+        costo = tariffa.perGiorno * days;
+      } else {
+        costo = tariffa.perOra * durationHours;
+      }
+      
+      logger.info(
+        `Calcolo costo deposito: durata=${durationHours}h, grandezza=${cell.grandezza}, costo=${costo}€`
+      );
+    }
+
     // Genera noleggioId
     const noleggioId = await Noleggio.generateNoleggioId();
 
@@ -952,7 +1005,8 @@ export async function verifyBluetoothPairing(req, res, next) {
       stato: 'attivo',
       dataInizio,
       oraInizio,
-      costo: 0, // Prestito è gratuito
+      dataFine, // Scadenza per deposito (null per prestito/pickup)
+      costo, // Costo calcolato per deposito, 0 per prestito
       bluetoothToken,
       geolocalizzazione: geolocation || null,
     });

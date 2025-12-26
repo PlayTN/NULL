@@ -236,7 +236,7 @@ class _DepositPaymentPageState extends State<DepositPaymentPage> {
           lockerName: widget.lockerName,
           lockerId: widget.lockerId,
           duration: _getSelectedDuration(), // Passa la durata selezionata
-          skipBluetoothVerification: true, // Salta verifica Bluetooth (già verificata)
+          skipBluetoothVerification: false, // NON saltare verifica Bluetooth - usa lo stesso flusso del prestito
         ),
       ),
     );

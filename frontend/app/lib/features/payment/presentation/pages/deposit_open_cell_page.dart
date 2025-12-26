@@ -75,9 +75,12 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   
   StreamSubscription<BluetoothAdapterState>? _bluetoothStateSubscription;
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
-  Timer? _doorCloseTimer;
+  Timer? _doorCloseTimer; // Timer per il timeout di chiusura dello sportello
+  Timer? _doorStatusPollingTimer; // Polling reale per verificare chiusura sportello
   ActiveCell? _activeCell;
   final Location _location = Location();
+  int _doorOpenSeconds = 0; // Secondi trascorsi dall'apertura
+  bool _doorCloseTimeout = false; // Timeout chiusura sportello
 
   @override
   void initState() {
@@ -162,6 +165,7 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
   @override
   void dispose() {
     _doorCloseTimer?.cancel();
+    _doorStatusPollingTimer?.cancel();
     _bluetoothStateSubscription?.cancel();
     _scanResultsSubscription?.cancel();
     FlutterBluePlus.stopScan();
@@ -421,6 +425,7 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
       }
 
       // Chiama backend per verificare accoppiamento
+      // Per deposito, passa type e duration
       final result = await repository.verifyBluetoothPairing(
         lockerId: widget.lockerId,
         cellId: widget.cell.id,
@@ -428,6 +433,8 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         bluetoothRssi: rssi,
         deviceName: deviceName,
         geolocation: geolocation,
+        type: widget.cell.type == CellType.pickup ? 'pickup' : 'deposited',
+        duration: widget.duration.inHours, // Durata in ore
       );
 
       // Verifica che tutti i dati necessari siano presenti
@@ -538,61 +545,157 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
 
   /// Apre la cella e attende la chiusura
   Future<void> _openCell() async {
-    // Richiedi/associa cella di deposito e apri tramite backend
+    debugPrint('➡️ [CELL] Tentativo di apertura cella deposito...');
+    // Verifica che l'accoppiamento sia stato verificato
+    if (_pairingId == null || _activeCell == null) {
+      setState(() {
+        _statusMessage = 'Accoppiamento non verificato. Riprova.';
+      });
+      debugPrint('❌ [CELL] PairingId o ActiveCell non disponibili.');
+      return;
+    }
+    
     final repository = AppDependencies.cellRepository;
     if (repository == null) {
       setState(() {
         _statusMessage = 'Servizio celle non disponibile.';
       });
+      debugPrint('❌ [CELL] Servizio celle non disponibile.');
       return;
     }
 
     try {
-      if (_activeCell == null) {
-        final requested = await repository.requestCell(
-          widget.lockerId,
-          type: widget.cell.type == CellType.pickup ? 'pickup' : 'deposited',
-        );
-        _activeCell = requested;
-      }
+      setState(() {
+        _statusMessage = 'Apertura cella in corso...';
+      });
+      debugPrint('➡️ [CELL] Chiamata openCellWithPairing con pairingId: $_pairingId, cellId: ${_activeCell!.cellId}, lockerId: ${widget.lockerId}');
+      
+      // Usa pairingId per aprire la cella (backend verifica tutto)
+      await repository.openCellWithPairing(
+        pairingId: _pairingId!,
+        cellId: _activeCell!.cellId,
+        lockerId: widget.lockerId,
+      );
+      
+      setState(() {
+        _cellOpened = true;
+        _waitingForDoorClose = true;
+        _doorOpenSeconds = 0;
+        _doorCloseTimeout = false;
+        _statusMessage = 'Cella aperta. Metti i tuoi oggetti dentro e chiudi lo sportello.';
+      });
+      debugPrint('✅ [CELL] Cella aperta con successo. Avvio polling stato sportello.');
 
-      await repository.openCell(_activeCell!.cellId);
+      // ========== POLLING REALE - VERIFICA STATO CHIUSURA DAL BACKEND ==========
+      // In produzione: il backend riceverà il segnale dal locker fisico tramite sensore
+      // e aggiornerà lo stato. L'app fa polling per verificare lo stato.
+      _startDoorStatusPolling();
+      
+      // ========== TIMEOUT CHIUSURA SPORTELLO ==========
+      // Timeout: se dopo 2 minuti lo sportello non è chiuso, mostra warning
+      _doorCloseTimer?.cancel();
+      _doorCloseTimer = Timer(const Duration(minutes: 2), () {
+        if (mounted && _waitingForDoorClose && !_doorCloseTimeout) {
+          debugPrint('⚠️ [TIMEOUT] Timeout chiusura sportello: 2 minuti trascorsi');
+          setState(() {
+            _doorCloseTimeout = true;
+            _statusMessage = '⚠️ Sportello aperto da troppo tempo. Assicurati di aver chiuso correttamente lo sportello.';
+          });
+        }
+      });
     } catch (e) {
       setState(() {
-        _statusMessage = 'Errore nell\'apertura della cella: $e';
+        _statusMessage = 'Errore nell\'apertura della cella: ${e.toString()}';
       });
-      return;
+      debugPrint('❌ [CELL] Errore nell\'apertura della cella: $e');
     }
+  }
 
-    setState(() {
-      _cellOpened = true;
-      _waitingForDoorClose = false; // Prima l'utente deve mettere gli oggetti
-      _statusMessage = 'Cella aperta. Metti i tuoi oggetti dentro e chiudi lo sportello.';
-    });
-
-
-    // ⚠️ SOLO PER TESTING: Timer di 3 secondi per simulare chiusura
-    // IN PRODUZIONE: Rilevare chiusura tramite sensore Bluetooth/backend che invierà segnale
-    // Il backend riceverà il segnale dal locker fisico e notificherà l'app
-    _doorCloseTimer?.cancel();
-    setState(() {
-      _waitingForDoorClose = true;
-      _statusMessage = 'In attesa della chiusura dello sportello...';
-    });
-    // Dopo 3 secondi, simula chiusura
-    _doorCloseTimer = Timer(const Duration(seconds: 3), () {
-      if (mounted && _waitingForDoorClose) {
-        _handleDoorClosed();
+  /// Avvia polling per verificare stato chiusura sportello
+  /// In produzione: verifica ogni 2 secondi se lo sportello è stato chiuso
+  void _startDoorStatusPolling() {
+    debugPrint('➡️ [POLLING] Avvio polling stato sportello...');
+    _doorStatusPollingTimer?.cancel();
+    
+    _doorStatusPollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!mounted || !_waitingForDoorClose) {
+        timer.cancel();
+        debugPrint('❌ [POLLING] Widget non montato o non più in attesa di chiusura, annullo polling.');
+        return;
+      }
+      
+      final repository = AppDependencies.cellRepository;
+      if (repository == null) {
+        timer.cancel();
+        debugPrint('❌ [POLLING] Servizio celle non disponibile, annullo polling.');
+        return;
+      }
+      
+      try {
+        debugPrint('➡️ [POLLING] Richiesta stato sportello per cellId: ${_activeCell!.cellId}');
+        final doorStatus = await repository.getDoorStatus(_activeCell!.cellId);
+        debugPrint('⬅️ [POLLING] Stato ricevuto: doorOpened=${doorStatus.doorOpened}, doorClosed=${doorStatus.doorClosed}, secondsSinceOpen=${doorStatus.secondsSinceOpen}');
+        
+        // Aggiorna secondi trascorsi
+        if (doorStatus.secondsSinceOpen != null) {
+          if (mounted) {
+            setState(() {
+              _doorOpenSeconds = doorStatus.secondsSinceOpen!;
+            });
+          }
+        }
+        
+        // Verifica se lo sportello è stato chiuso
+        // IMPORTANTE: Controlla doorClosed PRIMA perché quando è chiuso, doorOpened potrebbe essere ancora true
+        if (doorStatus.doorClosed == true) {
+          debugPrint('✅ [POLLING] Sportello chiuso rilevato! doorClosed=true - Fermo polling');
+          timer.cancel();
+          _doorCloseTimer?.cancel(); // Cancella anche timer timeout
+          // Ferma il polling immediatamente
+          _doorStatusPollingTimer = null;
+          // Gestisci chiusura
+          _handleDoorClosed();
+          return; // Esci subito dopo aver rilevato la chiusura
+        } else if (doorStatus.doorOpened == true) {
+          // Sportello ancora aperto, continua polling
+          debugPrint('⏳ [POLLING] Sportello ancora aperto (${doorStatus.secondsSinceOpen}s) - Continua polling...');
+        } else {
+          // Stato ambiguo: né aperto né chiuso
+          debugPrint('⚠️ [POLLING] Stato ambiguo: doorOpened=${doorStatus.doorOpened}, doorClosed=${doorStatus.doorClosed} - Continua polling...');
+        }
+      } catch (e) {
+        debugPrint('❌ [POLLING] Errore verifica stato sportello: $e');
+        // Continua polling anche in caso di errore, ma mostra messaggio
+        if (mounted) {
+          setState(() {
+            _statusMessage = 'Errore nel controllo stato sportello. Riprovo...';
+          });
+        }
       }
     });
-    debugPrint('✅ [TIMER] Timer di 3 secondi avviato per simulare chiusura');
+    
+    debugPrint('✅ [POLLING] Polling stato sportello avviato (ogni 2 secondi)');
+  }
+
+  /// Formatta durata in secondi come stringa leggibile
+  String _formatDuration(int seconds) {
+    if (seconds < 60) {
+      return '${seconds}s';
+    } else if (seconds < 3600) {
+      final minutes = seconds ~/ 60;
+      final secs = seconds % 60;
+      return secs > 0 ? '${minutes}m ${secs}s' : '${minutes}m';
+    } else {
+      final hours = seconds ~/ 3600;
+      final minutes = (seconds % 3600) ~/ 60;
+      return minutes > 0 ? '${hours}h ${minutes}m' : '${hours}h';
+    }
   }
 
   /// Gestisce la chiusura dello sportello
   /// 
-  /// **TODO BACKEND**: Chiamare API per salvare il deposito
-  /// POST /api/v1/deposits
-  /// Body: { lockerId, cellId, startTime, endTime, price }
+  /// Viene chiamato quando il polling rileva la chiusura o quando il backend
+  /// riceve il segnale di chiusura dal locker fisico (tramite sensore)
   Future<void> _handleDoorClosed() async {
     debugPrint('🔒 [CLOSE] Gestisco chiusura sportello');
     
@@ -602,16 +705,24 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
     }
     
     if (!_waitingForDoorClose) {
-      debugPrint('❌ [CLOSE] Non più in attesa di chiusura');
+      debugPrint('⚠️ [CLOSE] Non più in attesa di chiusura (già gestita?)');
       return;
     }
     
+    // Ferma immediatamente il polling per evitare chiamate multiple
+    _doorStatusPollingTimer?.cancel();
+    _doorStatusPollingTimer = null;
     _doorCloseTimer?.cancel();
     _doorCloseTimer = null;
     
-    setState(() {
-      _waitingForDoorClose = false;
-    });
+    // Aggiorna stato per evitare chiamate multiple
+    if (mounted) {
+      setState(() {
+        _waitingForDoorClose = false;
+      });
+    }
+    
+    debugPrint('✅ [CLOSE] Timer e polling fermati, stato aggiornato');
 
     // TODO BACKEND: Salvare deposito nel backend
     // await depositRepository.createDeposit(...);
@@ -653,26 +764,29 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
       } catch (e) {
         debugPrint('⚠️ [NOTIFICATION] Errore nella programmazione promemoria: $e');
       }
-    }
 
-    debugPrint('📱 [CLOSE] Navigo alla schermata di conferma...');
-    if (mounted) {
-      try {
-        await Navigator.of(context).pushReplacement(
-          CupertinoPageRoute(
-            builder: (context) => _DepositClosedConfirmationPage(
-              themeManager: widget.themeManager,
-              cellNumber: widget.cell.cellNumber,
-              lockerName: widget.lockerName,
-              cellSize: widget.cell.size.label,
-              isPickup: widget.cell.type == CellType.pickup,
-              isUnlock: !widget.skipBluetoothVerification,
+      debugPrint('📱 [CLOSE] Navigo alla schermata di conferma...');
+      // Naviga alla schermata di conferma chiusura
+      if (mounted) {
+        try {
+          await Navigator.of(context).pushReplacement(
+            CupertinoPageRoute(
+              builder: (context) => _DepositClosedConfirmationPage(
+                themeManager: widget.themeManager,
+                activeCell: activeCell,
+                cellNumber: widget.cell.cellNumber,
+                lockerName: widget.lockerName,
+                cellSize: widget.cell.size.label,
+                isPickup: widget.cell.type == CellType.pickup,
+                isUnlock: !widget.skipBluetoothVerification,
+                depositDuration: widget.duration,
+              ),
             ),
-          ),
-        );
-        debugPrint('✅ [CLOSE] Navigazione completata');
-      } catch (e) {
-        debugPrint('❌ [CLOSE] Errore durante navigazione: $e');
+          );
+          debugPrint('✅ [CLOSE] Navigazione completata');
+        } catch (e) {
+          debugPrint('❌ [CLOSE] Errore durante navigazione: $e');
+        }
       }
     }
   }
@@ -700,6 +814,7 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
               color: AppColors.primary(isDark),
               onPressed: () {
                 _doorCloseTimer?.cancel();
+                _doorStatusPollingTimer?.cancel();
                 FlutterBluePlus.stopScan();
                 Navigator.of(context).pop();
               },
@@ -1078,13 +1193,28 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         const CupertinoActivityIndicator(radius: 20),
         const SizedBox(height: 16),
         Text(
-          'In attesa della chiusura dello sportello...',
+          _doorCloseTimeout
+              ? 'Sportello aperto da ${_formatDuration(_doorOpenSeconds)}'
+              : 'In attesa della chiusura dello sportello...',
           style: TextStyle(
             fontSize: 13,
-            color: AppColors.textSecondary(isDark),
+            color: _doorCloseTimeout
+                ? AppColors.error(isDark)
+                : AppColors.textSecondary(isDark),
           ),
           textAlign: TextAlign.center,
         ),
+        if (_doorCloseTimeout) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Se lo sportello è già chiuso, prova a segnalare un problema.',
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary(isDark),
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ],
       ],
     );
   }
@@ -1101,12 +1231,35 @@ class _DepositClosedConfirmationPage extends StatelessWidget {
 
   const _DepositClosedConfirmationPage({
     required this.themeManager,
+    this.activeCell,
     required this.cellNumber,
     required this.lockerName,
     required this.cellSize,
     this.isPickup = false,
     this.isUnlock = false,
+    this.depositDuration,
   });
+
+  /// Formatta la durata del deposito in modo leggibile
+  String _formatDepositDuration(Duration duration) {
+    if (duration.inDays > 0) {
+      if (duration.inDays == 1) {
+        return '1 giorno';
+      }
+      return '${duration.inDays} giorni';
+    } else if (duration.inHours > 0) {
+      if (duration.inHours == 1) {
+        return '1 ora';
+      }
+      return '${duration.inHours} ore';
+    } else if (duration.inMinutes > 0) {
+      if (duration.inMinutes == 1) {
+        return '1 minuto';
+      }
+      return '${duration.inMinutes} minuti';
+    }
+    return 'meno di un minuto';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1166,6 +1319,30 @@ class _DepositClosedConfirmationPage extends StatelessWidget {
                     ),
                     textAlign: TextAlign.center,
                   ),
+                  if (!isPickup && !isUnlock && depositDuration != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Durata deposito: ${_formatDepositDuration(depositDuration!)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.primary(isDark),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                  if (!isPickup && !isUnlock && depositDuration != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Durata deposito: ${_formatDepositDuration(depositDuration!)}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.primary(isDark),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                   const SizedBox(height: 40),
                   Container(
                     padding: const EdgeInsets.all(16),

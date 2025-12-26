@@ -48,6 +48,7 @@ abstract class CellRepository {
   /// **Body**: {
   ///   "lockerId": "...",
   ///   "type": "deposited" | "borrow" | "pickup",
+  ///   "duration": 24 (opzionale, durata in ore per deposito),
   ///   "photo": "base64..." (opzionale),
   ///   "geolocalizzazione": { lat, lng } (opzionale)
   /// }
@@ -56,6 +57,7 @@ abstract class CellRepository {
   Future<ActiveCell> requestCell(
     String lockerId, {
     required String type,
+    int? duration, // Durata in ore (solo per deposito)
     String? photoBase64,
     Map<String, dynamic>? geolocation,
   });
