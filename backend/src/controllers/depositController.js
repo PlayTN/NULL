@@ -643,9 +643,6 @@ export async function processPayment(req, res, next) {
       if (!lockerId) {
         throw new ValidationError('lockerId è obbligatorio se depositId non è specificato');
       }
-      if (!cellId) {
-        throw new ValidationError('cellId è obbligatorio se depositId non è specificato');
-      }
       if (!duration || duration <= 0) {
         throw new ValidationError('duration è obbligatorio e deve essere maggiore di 0');
       }
@@ -656,17 +653,40 @@ export async function processPayment(req, res, next) {
         throw new NotFoundError(`Locker ${lockerId} non trovato`);
       }
 
-      // Verifica che cella esista e sia disponibile
-      const cell = await Cell.findOne({
-        cellaId: cellId,
-        lockerId,
-        tipo: 'deposito',
-        stato: 'libera',
-      });
+      // Trova cella disponibile per deposito
+      // Se cellId è specificato, cerca quella cella specifica
+      // Altrimenti, trova automaticamente una cella disponibile di tipo deposito
+      let cell;
+      if (cellId) {
+        // Cerca cella specifica
+        cell = await Cell.findOne({
+          cellaId: cellId,
+          lockerId,
+          tipo: 'deposito',
+          stato: 'libera',
+        });
 
-      if (!cell) {
-        throw new NotFoundError(
-          `Cella ${cellId} non trovata o non disponibile per deposito nel locker ${lockerId}`
+        if (!cell) {
+          throw new NotFoundError(
+            `Cella ${cellId} non trovata o non disponibile per deposito nel locker ${lockerId}`
+          );
+        }
+      } else {
+        // Trova automaticamente una cella disponibile di tipo deposito
+        cell = await Cell.findOne({
+          lockerId,
+          tipo: 'deposito',
+          stato: 'libera',
+        });
+
+        if (!cell) {
+          throw new NotFoundError(
+            `Nessuna cella disponibile per deposito nel locker ${lockerId}`
+          );
+        }
+
+        logger.info(
+          `Cella automaticamente assegnata per deposito: ${cell.cellaId} nel locker ${lockerId}`
         );
       }
 
@@ -698,7 +718,7 @@ export async function processPayment(req, res, next) {
     // ========== PROCESSA PAGAMENTO MOCK ==========
     // ⚠️ SOLO PER TESTING/DEVELOPMENT: Simula pagamento
     // IN PRODUZIONE: Integrare gateway di pagamento reale (Stripe, PayPal, ecc.)
-    const paymentIdForMock = depositId || `${lockerId}-${cellId}-${Date.now()}`;
+    const paymentIdForMock = depositId || `${lockerId}-${cell?.cellaId || 'auto'}-${Date.now()}`;
     const paymentResult = await processMockPayment(paymentAmount, paymentMethod, paymentIdForMock);
 
     logger.info(
@@ -720,11 +740,11 @@ export async function processPayment(req, res, next) {
       // Genera Bluetooth token
       const bluetoothToken = Noleggio.generateBluetoothToken();
 
-      // Crea Noleggio
+      // Crea Noleggio usando cellaId dalla cella trovata
       noleggio = new Noleggio({
         noleggioId,
         utenteId: userId,
-        cellaId: cellId,
+        cellaId: cell.cellaId, // Usa cellaId dalla cella trovata
         lockerId,
         tipo: 'deposito',
         stato: 'attivo',
@@ -737,15 +757,12 @@ export async function processPayment(req, res, next) {
 
       await noleggio.save();
 
-      // Aggiorna Cell stato a "occupata"
-      const cell = await Cell.findOne({ cellaId: cellId, lockerId });
-      if (cell) {
-        cell.stato = 'occupata';
-        await cell.save();
-      }
+      // Aggiorna Cell stato a "occupata" (la cella è già stata trovata sopra)
+      cell.stato = 'occupata';
+      await cell.save();
 
       logger.info(
-        `Deposito creato dopo pagamento: ${noleggioId} - Utente: ${userId}, Cella: ${cellId}, Locker: ${lockerId}, Durata: ${durationHours}h, Costo: ${paymentAmount}€`
+        `Deposito creato dopo pagamento: ${noleggioId} - Utente: ${userId}, Cella: ${cell.cellaId}, Locker: ${lockerId}, Durata: ${durationHours}h, Costo: ${paymentAmount}€`
       );
     }
 
