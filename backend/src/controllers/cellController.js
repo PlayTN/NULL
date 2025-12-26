@@ -1080,7 +1080,7 @@ export async function verifyBluetoothPairing(req, res, next) {
     const activeCell = await formatNoleggioAsActiveCell(noleggio);
 
     logger.info(
-      `Accoppiamento Bluetooth verificato: ${noleggioId} - Utente: ${userId}, Locker: ${lockerId}, Cella: ${cellId}`
+      `Accoppiamento Bluetooth verificato: ${noleggio.noleggioId} - Utente: ${userId}, Locker: ${lockerId}, Cella: ${cellId}`
     );
 
     // 10. Restituisci risultato
@@ -1088,7 +1088,7 @@ export async function verifyBluetoothPairing(req, res, next) {
       success: true,
       data: {
         verified: true,
-        pairingId: noleggioId, // Usa noleggioId come pairingId
+        pairingId: noleggio.noleggioId, // Usa noleggioId come pairingId
         cellAssigned: activeCell,
         message: 'Accoppiamento verificato. Cella assegnata.',
       },

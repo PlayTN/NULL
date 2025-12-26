@@ -805,9 +805,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
             middle: Text(
               widget.cell.type == CellType.pickup 
                   ? 'Ritira ordine'
-                  : !widget.skipBluetoothVerification
-                      ? 'Ritira oggetti'
-                      : 'Deposita oggetti',
+                  : widget.cell.type == CellType.deposit
+                      ? 'Deposita oggetti'
+                      : !widget.skipBluetoothVerification
+                          ? 'Deposita oggetti'
+                          : 'Ritira oggetti',
               style: AppTextStyles.title(isDark),
             ),
             leading: CupertinoNavigationBarBackButton(
@@ -1115,9 +1117,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         Text(
           isPickup
               ? 'Ritira il tuo ordine'
-              : isUnlock
-                  ? 'Ritira i tuoi oggetti'
-                  : 'Deposita i tuoi oggetti',
+              : widget.cell.type == CellType.deposit
+                  ? 'Deposita i tuoi oggetti'
+                  : isUnlock
+                      ? 'Ritira i tuoi oggetti'
+                      : 'Deposita i tuoi oggetti',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -1129,9 +1133,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         Text(
           isPickup
               ? 'Ritira il tuo ordine dalla cella'
-              : isUnlock
-                  ? 'Ritira i tuoi oggetti dalla cella'
-                  : 'Metti i tuoi oggetti dentro la cella',
+              : widget.cell.type == CellType.deposit
+                  ? 'Metti i tuoi oggetti dentro la cella'
+                  : isUnlock
+                      ? 'Ritira i tuoi oggetti dalla cella'
+                      : 'Metti i tuoi oggetti dentro la cella',
           style: TextStyle(
             fontSize: 15,
             color: AppColors.textSecondary(isDark),
@@ -1166,9 +1172,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         Text(
           isPickup
               ? 'Ritira il tuo ordine'
-              : isUnlock
-                  ? 'Ritira i tuoi oggetti'
-                  : 'Deposita i tuoi oggetti',
+              : widget.cell.type == CellType.deposit
+                  ? 'Deposita i tuoi oggetti'
+                  : isUnlock
+                      ? 'Ritira i tuoi oggetti'
+                      : 'Deposita i tuoi oggetti',
           style: TextStyle(
             fontSize: 20,
             fontWeight: FontWeight.w700,
@@ -1180,9 +1188,11 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
         Text(
           isPickup
               ? 'Ritira il tuo ordine dalla cella e chiudi correttamente lo sportello'
-              : isUnlock
-                  ? 'Ritira i tuoi oggetti dalla cella e chiudi correttamente lo sportello'
-                  : 'Metti i tuoi oggetti dentro la cella e chiudi correttamente lo sportello',
+              : widget.cell.type == CellType.deposit
+                  ? 'Metti i tuoi oggetti dentro la cella e chiudi correttamente lo sportello'
+                  : isUnlock
+                      ? 'Ritira i tuoi oggetti dalla cella e chiudi correttamente lo sportello'
+                      : 'Metti i tuoi oggetti dentro la cella e chiudi correttamente lo sportello',
           style: TextStyle(
             fontSize: 15,
             color: AppColors.textSecondary(isDark),
