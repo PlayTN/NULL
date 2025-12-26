@@ -367,8 +367,22 @@ export async function openCell(req, res, next) {
             noleggioUpdated.dataAggiornamento = new Date();
             await noleggioUpdated.save();
             
+            // ========== AGGIORNA STATO CELLA A "OCCUPATA" ==========
+            // Quando lo sportello viene chiuso, la cella passa a "occupata"
+            // Questo indica che l'oggetto è in prestito/deposito e la cella è occupata
+            const cellForClose = await Cell.findOne({ cellaId: cell_id_final });
+            if (cellForClose) {
+              cellForClose.stato = 'occupata';
+              cellForClose.dataAggiornamento = new Date();
+              await cellForClose.save();
+              logger.info(
+                `[MOCK] Cella ${cell_id_final} impostata a stato "occupata" - Sportello chiuso, oggetto in prestito`
+              );
+            }
+            // ========== FINE AGGIORNA STATO ==========
+            
             logger.info(
-              `[MOCK] ⚠️ Chiusura automatica simulata per cella ${cell_id_final} - Noleggio: ${noleggio.noleggioId}`
+              `[MOCK] ⚠️ Chiusura automatica simulata per cella ${cell_id_final} - Noleggio: ${noleggioUpdated.noleggioId}`
             );
             logger.info(
               `[MOCK] ⚠️ In produzione, questo sarà rilevato dal sensore del locker fisico`
@@ -395,6 +409,20 @@ export async function openCell(req, res, next) {
     noleggio.cellaChiusa = false; // Reset stato chiusura
     noleggio.dataChiusura = null;
     await noleggio.save();
+
+    // ========== AGGIORNA STATO CELLA A "APERTO" ==========
+    // Quando la cella viene aperta fisicamente, lo stato passa a "aperto"
+    // Questo indica che lo sportello è aperto e l'utente sta prendendo/posando l'oggetto
+    const cellForStatus = await Cell.findOne({ cellaId: cell_id_final });
+    if (cellForStatus) {
+      cellForStatus.stato = 'aperto';
+      cellForStatus.dataAggiornamento = new Date();
+      await cellForStatus.save();
+      logger.info(
+        `Cella ${cell_id_final} impostata a stato "aperto" - Sportello aperto`
+      );
+    }
+    // ========== FINE AGGIORNA STATO ==========
 
     logger.info(
       `Cella aperta: ${cell_id_final} - Noleggio: ${noleggio.noleggioId}, Utente: ${userId}${pairingId ? ` (pairingId: ${pairingId})` : ''}`
@@ -476,6 +504,20 @@ export async function closeCell(req, res, next) {
     noleggio.dataChiusura = new Date();
     noleggio.dataAggiornamento = new Date();
     await noleggio.save();
+
+    // ========== AGGIORNA STATO CELLA A "OCCUPATA" ==========
+    // Quando lo sportello viene chiuso, la cella passa a "occupata"
+    // Questo indica che l'oggetto è in prestito/deposito e la cella è occupata
+    const cell = await Cell.findOne({ cellaId: cell_id });
+    if (cell) {
+      cell.stato = 'occupata';
+      cell.dataAggiornamento = new Date();
+      await cell.save();
+      logger.info(
+        `Cella ${cell_id} impostata a stato "occupata" - Sportello chiuso, oggetto in prestito/deposito`
+      );
+    }
+    // ========== FINE AGGIORNA STATO ==========
 
     logger.info(
       `Cella chiusa: ${cell_id} - Noleggio: ${noleggio.noleggioId}, Utente: ${userId}`
