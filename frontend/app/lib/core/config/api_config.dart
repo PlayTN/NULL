@@ -52,6 +52,9 @@ class ApiConfig {
   
   /// Endpoint per verificare accoppiamento Bluetooth
   static const String verifyBluetoothPairingEndpoint = '/cells/verify-bluetooth-pairing';
+  
+  /// Endpoint per verificare stato apertura/chiusura sportello
+  static const String doorStatusEndpoint = '/cells/:cellId/door-status';
 }
 
 

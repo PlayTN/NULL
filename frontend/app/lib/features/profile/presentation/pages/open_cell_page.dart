@@ -78,8 +78,18 @@ class _OpenCellPageState extends State<OpenCellPage> {
   
   StreamSubscription<BluetoothAdapterState>? _bluetoothStateSubscription;
   StreamSubscription<List<ScanResult>>? _scanResultsSubscription;
-  Timer? _doorCloseTimer;
+  Timer? _doorCloseTimer; // ========== MOCK TESTING - RIMUOVERE IN PRODUZIONE ==========
+  Timer? _doorStatusPollingTimer; // Polling reale per verificare chiusura sportello
   final Location _location = Location();
+  int _doorOpenSeconds = 0; // Secondi trascorsi dall'apertura
+  bool _doorCloseTimeout = false; // Timeout chiusura sportello
+  
+  // ========== MOCK BLUETOOTH TESTING - RIMUOVERE IN PRODUZIONE ==========
+  // Flag per attivare modalità mock Bluetooth (simula ricerca e ritrovamento senza dispositivo reale)
+  // In produzione: impostare a false o rimuovere completamente
+  static const bool _useBluetoothMock = true; // Cambiare a false per usare Bluetooth reale
+  Timer? _bluetoothMockTimer; // Timer per simulare ritrovamento dispositivo
+  // ========== FINE MOCK BLUETOOTH ==========
 
   @override
   void initState() {
@@ -147,6 +157,8 @@ class _OpenCellPageState extends State<OpenCellPage> {
   @override
   void dispose() {
     _doorCloseTimer?.cancel();
+    _doorStatusPollingTimer?.cancel();
+    _bluetoothMockTimer?.cancel(); // ========== MOCK BLUETOOTH - RIMUOVERE IN PRODUZIONE ==========
     _bluetoothStateSubscription?.cancel();
     _scanResultsSubscription?.cancel();
     FlutterBluePlus.stopScan();
@@ -537,6 +549,21 @@ class _OpenCellPageState extends State<OpenCellPage> {
     }
   }
 
+  /// Formatta durata in secondi come stringa leggibile
+  String _formatDuration(int seconds) {
+    if (seconds < 60) {
+      return '${seconds}s';
+    } else if (seconds < 3600) {
+      final minutes = seconds ~/ 60;
+      final secs = seconds % 60;
+      return secs > 0 ? '${minutes}m ${secs}s' : '${minutes}m';
+    } else {
+      final hours = seconds ~/ 3600;
+      final minutes = (seconds % 3600) ~/ 60;
+      return minutes > 0 ? '${hours}h ${minutes}m' : '${hours}h';
+    }
+  }
+
   /// Gestisce la segnalazione di un problema
   void _handleReport() {
     Navigator.of(context).push(
@@ -585,21 +612,33 @@ class _OpenCellPageState extends State<OpenCellPage> {
       setState(() {
         _cellOpened = true;
         _waitingForDoorClose = true;
+        _doorOpenSeconds = 0;
+        _doorCloseTimeout = false;
         _statusMessage = 'Cella aperta. Prendi l\'oggetto e chiudi lo sportello.';
       });
 
-      // Timer per rilevare chiusura sportello
-      // In produzione: il backend riceverà il segnale dal locker fisico e notificherà l'app
+      // ========== POLLING REALE - VERIFICA STATO CHIUSURA DAL BACKEND ==========
+      // In produzione: il backend riceverà il segnale dal locker fisico tramite sensore
+      // e aggiornerà lo stato. L'app fa polling per verificare lo stato.
+      _startDoorStatusPolling();
+      
+      // ========== TIMEOUT CHIUSURA SPORTELLO ==========
+      // Timeout: se dopo 2 minuti lo sportello non è chiuso, mostra warning
       _doorCloseTimer?.cancel();
-      _doorCloseTimer = Timer(const Duration(seconds: 3), () {
-        debugPrint('⏱️ [TIMER] Timer scaduto - chiusura rilevata');
-        if (mounted && _waitingForDoorClose) {
-          _handleDoorClosed();
-        } else {
-          debugPrint('⚠️ [TIMER] Widget non montato o non più in attesa');
+      _doorCloseTimer = Timer(const Duration(minutes: 2), () {
+        if (mounted && _waitingForDoorClose && !_doorCloseTimeout) {
+          debugPrint('⚠️ [TIMEOUT] Timeout chiusura sportello: 2 minuti trascorsi');
+          setState(() {
+            _doorCloseTimeout = true;
+            _statusMessage = '⚠️ Sportello aperto da troppo tempo. Assicurati di aver chiuso correttamente lo sportello.';
+          });
         }
       });
-      debugPrint('✅ [TIMER] Timer di 3 secondi avviato per rilevare chiusura');
+      
+      // ========== MOCK TESTING - RIMUOVERE IN PRODUZIONE ==========
+      // NOTA: Il mock nel backend chiude automaticamente dopo 5 secondi
+      // Questo è solo per testing. In produzione, il locker fisico invierà il segnale di chiusura.
+      // ========== FINE MOCK ==========
     } catch (e) {
       setState(() {
         _statusMessage = 'Errore nell\'apertura della cella: ${e.toString()}';
@@ -607,9 +646,55 @@ class _OpenCellPageState extends State<OpenCellPage> {
     }
   }
 
+  /// Avvia polling per verificare stato chiusura sportello
+  /// In produzione: verifica ogni 2 secondi se lo sportello è stato chiuso
+  void _startDoorStatusPolling() {
+    _doorStatusPollingTimer?.cancel();
+    
+    _doorStatusPollingTimer = Timer.periodic(const Duration(seconds: 2), (timer) async {
+      if (!mounted || !_waitingForDoorClose) {
+        timer.cancel();
+        return;
+      }
+      
+      final repository = AppDependencies.cellRepository;
+      if (repository == null) {
+        timer.cancel();
+        return;
+      }
+      
+      try {
+        final doorStatus = await repository.getDoorStatus(_activeCell!.cellId);
+        
+        // Aggiorna secondi trascorsi
+        if (doorStatus.secondsSinceOpen != null) {
+          setState(() {
+            _doorOpenSeconds = doorStatus.secondsSinceOpen!;
+          });
+        }
+        
+        // Verifica se lo sportello è stato chiuso
+        if (doorStatus.doorClosed) {
+          debugPrint('✅ [POLLING] Sportello chiuso rilevato!');
+          timer.cancel();
+          _doorCloseTimer?.cancel(); // Cancella anche timer timeout
+          _handleDoorClosed();
+        } else if (doorStatus.doorOpened) {
+          // Sportello ancora aperto, continua polling
+          debugPrint('⏳ [POLLING] Sportello ancora aperto (${doorStatus.secondsSinceOpen}s)');
+        }
+      } catch (e) {
+        debugPrint('❌ [POLLING] Errore verifica stato sportello: $e');
+        // Continua polling anche in caso di errore
+      }
+    });
+    
+    debugPrint('✅ [POLLING] Polling stato sportello avviato (ogni 2 secondi)');
+  }
+
   /// Gestisce la chiusura dello sportello
   /// 
-  /// Viene chiamato quando il timer rileva la chiusura o quando il backend
+  /// Viene chiamato quando il polling rileva la chiusura o quando il backend
   /// riceve il segnale di chiusura dal locker fisico (tramite sensore)
   Future<void> _handleDoorClosed() async {
     debugPrint('🔒 [CLOSE] Gestisco chiusura sportello');
@@ -624,9 +709,11 @@ class _OpenCellPageState extends State<OpenCellPage> {
       return;
     }
     
-    // Cancella timer
-    _doorCloseTimer?.cancel();
+    // Cancella timer e polling
+    _doorCloseTimer?.cancel(); // ========== MOCK - RIMUOVERE IN PRODUZIONE ==========
     _doorCloseTimer = null;
+    _doorStatusPollingTimer?.cancel();
+    _doorStatusPollingTimer = null;
     
     setState(() {
       _waitingForDoorClose = false;
@@ -663,8 +750,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
           CupertinoPageRoute(
             builder: (context) => _DoorClosedConfirmationPage(
               themeManager: widget.themeManager,
-              cellNumber: widget.cell.cellNumber,
-              lockerName: widget.lockerName,
+              activeCell: activeCell,
               itemName: widget.cell.itemName ?? 'Oggetto',
             ),
           ),
@@ -695,6 +781,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
               color: AppColors.primary(isDark),
               onPressed: () {
                 _doorCloseTimer?.cancel();
+                _doorStatusPollingTimer?.cancel();
                 FlutterBluePlus.stopScan();
                 Navigator.of(context).pop();
               },
@@ -795,16 +882,46 @@ class _OpenCellPageState extends State<OpenCellPage> {
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 40),
+        // Mostra timer se sportello aperto da più di 0 secondi
+        if (_doorOpenSeconds > 0) ...[
+          Text(
+            'Sportello aperto da ${_formatDuration(_doorOpenSeconds)}',
+            style: TextStyle(
+              fontSize: 13,
+              color: AppColors.textSecondary(isDark),
+            ),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+        ],
         const CupertinoActivityIndicator(radius: 20),
         const SizedBox(height: 16),
         Text(
-          'In attesa della chiusura dello sportello...',
+          _doorCloseTimeout 
+              ? '⚠️ Attesa chiusura sportello... Assicurati di aver chiuso correttamente.'
+              : 'In attesa della chiusura dello sportello...',
           style: TextStyle(
             fontSize: 13,
-            color: AppColors.textSecondary(isDark),
+            color: _doorCloseTimeout 
+                ? AppColors.warning(isDark)
+                : AppColors.textSecondary(isDark),
           ),
           textAlign: TextAlign.center,
         ),
+        const SizedBox(height: 24),
+        // Pulsante per segnalare problema se timeout
+        if (_doorCloseTimeout)
+          CupertinoButton(
+            onPressed: _handleReport,
+            child: Text(
+              'Segnala problema',
+              style: TextStyle(
+                fontSize: 15,
+                color: AppColors.primary(isDark),
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1075,14 +1192,12 @@ class _OpenCellPageState extends State<OpenCellPage> {
 /// Schermata di conferma chiusura sportello
 class _DoorClosedConfirmationPage extends StatelessWidget {
   final ThemeManager themeManager;
-  final String cellNumber;
-  final String lockerName;
+  final ActiveCell activeCell;
   final String itemName;
 
   const _DoorClosedConfirmationPage({
     required this.themeManager,
-    required this.cellNumber,
-    required this.lockerName,
+    required this.activeCell,
     required this.itemName,
   });
 
@@ -1141,6 +1256,7 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 40),
+                  // Informazioni prestito
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -1148,7 +1264,9 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Locker e cella
                         Row(
                           children: [
                             Icon(
@@ -1159,7 +1277,7 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                lockerName,
+                                activeCell.lockerName,
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: AppColors.text(isDark),
@@ -1179,7 +1297,7 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              cellNumber,
+                              'Cella ${activeCell.cellNumber}',
                               style: TextStyle(
                                 fontSize: 13,
                                 color: AppColors.textSecondary(isDark),
@@ -1187,6 +1305,61 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
                             ),
                           ],
                         ),
+                        // Separatore
+                        const SizedBox(height: 16),
+                        Container(
+                          height: 1,
+                          color: AppColors.divider(isDark),
+                        ),
+                        const SizedBox(height: 16),
+                        // Data inizio prestito
+                        Row(
+                          children: [
+                            Icon(
+                              CupertinoIcons.calendar,
+                              size: 16,
+                              color: AppColors.textSecondary(isDark),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'Inizio: ${activeCell.formattedStartTime}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary(isDark),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        // Scadenza prestito
+                        if (activeCell.endTime != null) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Icon(
+                                CupertinoIcons.clock,
+                                size: 16,
+                                color: AppColors.textSecondary(isDark),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  activeCell.formattedEndTime ?? 'Nessuna scadenza',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: activeCell.formattedEndTime?.contains('Scaduto') == true
+                                        ? AppColors.error(isDark)
+                                        : AppColors.textSecondary(isDark),
+                                    fontWeight: activeCell.formattedEndTime?.contains('Scaduto') == true
+                                        ? FontWeight.w600
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ],
                     ),
                   ),

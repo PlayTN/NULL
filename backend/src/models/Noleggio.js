@@ -92,6 +92,25 @@ const noleggioSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Stato apertura/chiusura cella fisica
+    cellaAperta: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dataApertura: {
+      type: Date,
+      default: null,
+    },
+    cellaChiusa: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    dataChiusura: {
+      type: Date,
+      default: null,
+    },
     dataCreazione: {
       type: Date,
       default: Date.now,

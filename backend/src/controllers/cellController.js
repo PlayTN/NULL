@@ -336,6 +336,32 @@ export async function openCell(req, res, next) {
       );
       // Simula invio comando al locker (in produzione sarà reale)
       // Il locker fisico riceverà il comando e aprirà la cella
+      
+      // ========== MOCK CHIUSURA AUTOMATICA - RIMUOVERE IN PRODUZIONE ==========
+      // In produzione: il locker fisico invierà notifica di chiusura tramite sensore
+      // Per testing: simula chiusura automatica dopo 5 secondi
+      setTimeout(async () => {
+        try {
+          const noleggioUpdated = await Noleggio.findOne({
+            noleggioId: noleggio.noleggioId,
+          });
+          
+          if (noleggioUpdated && noleggioUpdated.cellaAperta && !noleggioUpdated.cellaChiusa) {
+            // Simula chiusura automatica dopo 5 secondi
+            noleggioUpdated.cellaChiusa = true;
+            noleggioUpdated.dataChiusura = new Date();
+            noleggioUpdated.dataAggiornamento = new Date();
+            await noleggioUpdated.save();
+            
+            logger.info(
+              `[MOCK] Chiusura automatica simulata per cella ${cell_id_final} - Noleggio: ${noleggio.noleggioId}`
+            );
+          }
+        } catch (error) {
+          logger.error(`[MOCK] Errore chiusura automatica mock: ${error.message}`);
+        }
+      }, 5000); // 5 secondi per testing
+      // ========== FINE MOCK CHIUSURA AUTOMATICA ==========
       // ========== FINE MOCK ==========
     } catch (error) {
       logger.error(`Errore apertura locker fisico: ${error.message}`);
@@ -863,6 +889,58 @@ export async function verifyBluetoothPairing(req, res, next) {
   }
 }
 
+/**
+ * GET /api/v1/cells/:cellId/door-status
+ * Verifica stato apertura/chiusura sportello
+ * Utilizzato per polling dal frontend
+ * 
+ * **SICUREZZA - TUTTI I CONTROLLI CRITICI SONO LATO BACKEND:**
+ * - Verifica che la cella appartenga all'utente autenticato
+ * - Verifica che il noleggio sia attivo
+ * - Restituisce solo informazioni autorizzate
+ */
+export async function getDoorStatus(req, res, next) {
+  try {
+    const { cellId } = req.params;
+    const userId = req.user.userId; // Da middleware auth
+
+    if (!cellId) {
+      throw new ValidationError('cellId è obbligatorio');
+    }
+
+    // Trova Noleggio per cellaId e utenteId
+    const noleggio = await Noleggio.findOne({
+      cellaId: cellId,
+      utenteId: userId,
+      stato: 'attivo',
+    });
+
+    if (!noleggio) {
+      throw new NotFoundError(
+        `Noleggio attivo non trovato per cella ${cellId} e utente corrente`
+      );
+    }
+
+    // Restituisci stato sportello
+    res.json({
+      success: true,
+      data: {
+        cellId,
+        doorOpened: noleggio.cellaAperta || false,
+        doorClosed: noleggio.cellaChiusa || false,
+        openedAt: noleggio.dataApertura || null,
+        closedAt: noleggio.dataChiusura || null,
+        // Calcola tempo trascorso dall'apertura (in secondi)
+        secondsSinceOpen: noleggio.dataApertura
+          ? Math.floor((new Date() - noleggio.dataApertura) / 1000)
+          : null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export default {
   requestCell,
   openCell,
@@ -871,5 +949,6 @@ export default {
   getActiveCells,
   getHistory,
   verifyBluetoothPairing,
+  getDoorStatus,
 };
 

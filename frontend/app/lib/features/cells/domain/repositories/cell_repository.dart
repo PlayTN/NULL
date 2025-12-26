@@ -100,6 +100,47 @@ abstract class CellRepository {
     required String cellId,
     required String lockerId,
   });
+  
+  /// Verifica stato apertura/chiusura sportello
+  /// 
+  /// **Endpoint backend**: GET /api/v1/cells/:cellId/door-status
+  /// **Autenticazione**: Richiesta
+  /// **Risposta**: { "doorOpened": true, "doorClosed": false, "openedAt": "...", "closedAt": null, "secondsSinceOpen": 10 }
+  Future<DoorStatus> getDoorStatus(String cellId);
+}
+
+/// Stato apertura/chiusura sportello
+class DoorStatus {
+  final String cellId;
+  final bool doorOpened;
+  final bool doorClosed;
+  final DateTime? openedAt;
+  final DateTime? closedAt;
+  final int? secondsSinceOpen;
+  
+  DoorStatus({
+    required this.cellId,
+    required this.doorOpened,
+    required this.doorClosed,
+    this.openedAt,
+    this.closedAt,
+    this.secondsSinceOpen,
+  });
+  
+  factory DoorStatus.fromJson(Map<String, dynamic> json) {
+    return DoorStatus(
+      cellId: json['cellId'] as String,
+      doorOpened: json['doorOpened'] as bool? ?? false,
+      doorClosed: json['doorClosed'] as bool? ?? false,
+      openedAt: json['openedAt'] != null 
+          ? DateTime.parse(json['openedAt'] as String)
+          : null,
+      closedAt: json['closedAt'] != null 
+          ? DateTime.parse(json['closedAt'] as String)
+          : null,
+      secondsSinceOpen: json['secondsSinceOpen'] as int?,
+    );
+  }
 }
 
 /// Risultato della verifica accoppiamento Bluetooth

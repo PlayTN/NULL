@@ -7,6 +7,7 @@ import {
   getActiveCells,
   getHistory,
   verifyBluetoothPairing,
+  getDoorStatus,
 } from '../controllers/cellController.js';
 import { authenticate } from '../middleware/auth.js';
 
@@ -68,6 +69,14 @@ router.get('/history', authenticate, getHistory);
  * Autenticazione: Richiesta
  */
 router.post('/verify-bluetooth-pairing', authenticate, verifyBluetoothPairing);
+
+/**
+ * GET /api/v1/cells/:cellId/door-status
+ * Verifica stato apertura/chiusura sportello
+ * Utilizzato per polling dal frontend
+ * Autenticazione: Richiesta
+ */
+router.get('/:cellId/door-status', authenticate, getDoorStatus);
 
 export default router;
 

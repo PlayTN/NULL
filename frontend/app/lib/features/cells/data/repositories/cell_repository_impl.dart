@@ -291,6 +291,25 @@ class CellRepositoryImpl implements CellRepository {
       throw Exception('Errore nell\'apertura della cella: ${e.message}');
     }
   }
+
+  @override
+  Future<DoorStatus> getDoorStatus(String cellId) async {
+    try {
+      final endpoint = ApiConfig.doorStatusEndpoint.replaceAll(':cellId', cellId);
+      final response = await _apiClient.get(
+        endpoint,
+        requireAuth: true,
+      );
+
+      if (response is! Map<String, dynamic>) {
+        throw Exception('Formato risposta stato sportello non valido');
+      }
+
+      return DoorStatus.fromJson(response);
+    } on ApiException catch (e) {
+      throw Exception('Errore nel controllo stato sportello: ${e.message}');
+    }
+  }
 }
 
 
