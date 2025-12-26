@@ -675,11 +675,12 @@ export async function verifyBluetoothPairing(req, res, next) {
       );
     }
 
-    // 3. Verifica prossimità tramite RSSI (opzionale ma consigliato)
+    // 3. Verifica prossimità tramite RSSI (priorità - più affidabile del GPS)
     // RSSI tipico: -30 a -90 dBm
     // -30 a -50: molto vicino
     // -50 a -70: vicino
     // -70 a -90: lontano
+    let rssiValid = false;
     if (bluetoothRssi !== undefined && bluetoothRssi !== null) {
       const MAX_RSSI_THRESHOLD = -80; // Soglia massima (più negativo = più lontano)
       if (bluetoothRssi < MAX_RSSI_THRESHOLD) {
@@ -687,9 +688,14 @@ export async function verifyBluetoothPairing(req, res, next) {
           'Dispositivo troppo distante dal locker. Avvicinati per continuare.'
         );
       }
+      // RSSI valido indica prossimità (più affidabile del GPS)
+      rssiValid = true;
     }
 
-    // 4. Verifica prossimità tramite geolocalizzazione (opzionale)
+    // 4. Verifica prossimità tramite geolocalizzazione (solo se RSSI non disponibile o dubbio)
+    // NOTA: La geolocalizzazione può essere imprecisa (GPS indoor, errori di posizionamento)
+    // Se RSSI è buono (es. > -70 dBm), la geolocalizzazione è solo un controllo aggiuntivo
+    // e non dovrebbe bloccare se c'è un RSSI valido
     if (geolocation && geolocation.lat && geolocation.lng) {
       const lockerLat = locker.coordinate.lat;
       const lockerLng = locker.coordinate.lng;
@@ -709,11 +715,23 @@ export async function verifyBluetoothPairing(req, res, next) {
       const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
       const distance = R * c; // Distanza in metri
 
-      const MAX_DISTANCE_METERS = 50; // Soglia massima: 50 metri
+      // Se RSSI è valido e buono (vicino), la geolocalizzazione è solo informativa
+      // Se RSSI non è disponibile, usa geolocalizzazione con soglia più permissiva
+      const MAX_DISTANCE_METERS = rssiValid ? 200 : 50; // 200m se RSSI valido, 50m altrimenti
+      
       if (distance > MAX_DISTANCE_METERS) {
-        throw new ValidationError(
-          `Troppo distante dal locker (${Math.round(distance)}m). Avvicinati per continuare.`
-        );
+        // Se RSSI è valido e buono, log warning ma non bloccare
+        if (rssiValid && bluetoothRssi > -70) {
+          logger.warn(
+            `Geolocalizzazione indica distanza ${Math.round(distance)}m ma RSSI ${bluetoothRssi} dBm indica prossimità. Usando RSSI come verifica principale.`
+          );
+          // Non bloccare se RSSI è buono
+        } else {
+          // Se RSSI non è valido o è debole, usa geolocalizzazione
+          throw new ValidationError(
+            `Troppo distante dal locker (${Math.round(distance)}m). Avvicinati per continuare.`
+          );
+        }
       }
     }
 
