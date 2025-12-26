@@ -797,6 +797,7 @@ class _OpenCellPageState extends State<OpenCellPage> {
               themeManager: widget.themeManager,
               activeCell: activeCell,
               itemName: widget.cell.itemName ?? 'Oggetto',
+              borrowDuration: widget.cell.borrowDuration,
             ),
           ),
         );
@@ -953,20 +954,6 @@ class _OpenCellPageState extends State<OpenCellPage> {
           ),
           textAlign: TextAlign.center,
         ),
-        const SizedBox(height: 24),
-        // Pulsante per segnalare problema se timeout
-        if (_doorCloseTimeout)
-          CupertinoButton(
-            onPressed: _handleReport,
-            child: Text(
-              'Segnala problema',
-              style: TextStyle(
-                fontSize: 15,
-                color: AppColors.primary(isDark),
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
       ],
     );
   }
@@ -1239,12 +1226,35 @@ class _DoorClosedConfirmationPage extends StatelessWidget {
   final ThemeManager themeManager;
   final ActiveCell activeCell;
   final String itemName;
+  final Duration? borrowDuration; // Durata del prestito
 
   const _DoorClosedConfirmationPage({
     required this.themeManager,
     required this.activeCell,
     required this.itemName,
+    this.borrowDuration,
   });
+
+  /// Formatta la durata del prestito in modo leggibile
+  String _formatBorrowDuration(Duration duration) {
+    if (duration.inDays > 0) {
+      if (duration.inDays == 1) {
+        return '1 giorno';
+      }
+      return '${duration.inDays} giorni';
+    } else if (duration.inHours > 0) {
+      if (duration.inHours == 1) {
+        return '1 ora';
+      }
+      return '${duration.inHours} ore';
+    } else if (duration.inMinutes > 0) {
+      if (duration.inMinutes == 1) {
+        return '1 minuto';
+      }
+      return '${duration.inMinutes} minuti';
+    }
+    return 'meno di un minuto';
+  }
 
   @override
   Widget build(BuildContext context) {
