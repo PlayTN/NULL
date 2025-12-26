@@ -326,21 +326,34 @@ export async function openCell(req, res, next) {
 
     // ========== APERTURA LOCKER FISICO ==========
     // In produzione: invia comando al locker fisico tramite API/Bluetooth
-    // Per ora: mock per testing (rimuovere in produzione)
+    // Il locker fisico riceverà il comando e aprirà la cella meccanicamente
     try {
       // TODO PRODUZIONE: Sostituire con chiamata API reale al locker
-      // Esempio: await lockerHardwareService.openCell(lockerId, cell_id_final);
+      // Esempio:
+      //   const lockerHardwareService = require('../services/lockerHardwareService');
+      //   await lockerHardwareService.openCell(lockerId, cell_id_final);
+      //   // Il locker fisico aprirà la cella e invierà conferma tramite sensore
       
       // ========== MOCK TESTING - RIMUOVERE IN PRODUZIONE ==========
+      // ATTENZIONE: Questo è solo per testing durante lo sviluppo
+      // In produzione, rimuovere questo blocco e implementare la chiamata reale al locker
       logger.info(
-        `[MOCK] Simulazione apertura locker fisico: lockerId=${lockerId}, cellId=${cell_id_final}`
+        `[MOCK] ⚠️ SIMULAZIONE apertura locker fisico: lockerId=${lockerId}, cellId=${cell_id_final}`
+      );
+      logger.info(
+        `[MOCK] ⚠️ In produzione, questo sarà sostituito con chiamata API reale al locker hardware`
       );
       // Simula invio comando al locker (in produzione sarà reale)
       // Il locker fisico riceverà il comando e aprirà la cella
+      // ========== FINE MOCK APERTURA ==========
       
       // ========== MOCK CHIUSURA AUTOMATICA - RIMUOVERE IN PRODUZIONE ==========
+      // ATTENZIONE: Questo è solo per testing durante lo sviluppo
       // In produzione: il locker fisico invierà notifica di chiusura tramite sensore
-      // Per testing: simula chiusura automatica dopo 5 secondi
+      // quando lo sportello viene effettivamente chiuso dall'utente
+      // 
+      // Per testing: simula chiusura automatica dopo 5 secondi dall'apertura
+      // Questo permette di testare il flusso completo senza locker fisico
       setTimeout(async () => {
         try {
           const noleggioUpdated = await Noleggio.findOne({
@@ -348,22 +361,27 @@ export async function openCell(req, res, next) {
           });
           
           if (noleggioUpdated && noleggioUpdated.cellaAperta && !noleggioUpdated.cellaChiusa) {
-            // Simula chiusura automatica dopo 5 secondi
+            // ========== MOCK: Simula chiusura automatica dopo 5 secondi ==========
+            // In produzione: questo stato verrà aggiornato dal locker fisico
+            // quando il sensore rileva che lo sportello è stato chiuso
             noleggioUpdated.cellaChiusa = true;
             noleggioUpdated.dataChiusura = new Date();
             noleggioUpdated.dataAggiornamento = new Date();
             await noleggioUpdated.save();
             
             logger.info(
-              `[MOCK] Chiusura automatica simulata per cella ${cell_id_final} - Noleggio: ${noleggio.noleggioId}`
+              `[MOCK] ⚠️ Chiusura automatica simulata per cella ${cell_id_final} - Noleggio: ${noleggio.noleggioId}`
             );
+            logger.info(
+              `[MOCK] ⚠️ In produzione, questo sarà rilevato dal sensore del locker fisico`
+            );
+            // ========== FINE MOCK CHIUSURA ==========
           }
         } catch (error) {
           logger.error(`[MOCK] Errore chiusura automatica mock: ${error.message}`);
         }
-      }, 5000); // 5 secondi per testing
+      }, 5000); // 5 secondi per testing - RIMUOVERE IN PRODUZIONE
       // ========== FINE MOCK CHIUSURA AUTOMATICA ==========
-      // ========== FINE MOCK ==========
     } catch (error) {
       logger.error(`Errore apertura locker fisico: ${error.message}`);
       throw new ValidationError(
@@ -907,12 +925,16 @@ export async function verifyBluetoothPairing(req, res, next) {
 /**
  * GET /api/v1/cells/:cellId/door-status
  * Verifica stato apertura/chiusura sportello
- * Utilizzato per polling dal frontend
+ * Utilizzato per polling dal frontend (chiamato ogni 2 secondi)
  * 
  * **SICUREZZA - TUTTI I CONTROLLI CRITICI SONO LATO BACKEND:**
  * - Verifica che la cella appartenga all'utente autenticato
  * - Verifica che il noleggio sia attivo
  * - Restituisce solo informazioni autorizzate
+ * 
+ * **MOCK MODE:**
+ * - In modalità mock, lo stato viene aggiornato automaticamente dopo 5 secondi dall'apertura
+ * - In produzione, lo stato verrà aggiornato dal locker fisico tramite sensore
  */
 export async function getDoorStatus(req, res, next) {
   try {
@@ -936,6 +958,12 @@ export async function getDoorStatus(req, res, next) {
       );
     }
 
+    // ========== MOCK MODE - SOLO PER TESTING ==========
+    // NOTA: In produzione, lo stato verrà aggiornato dal locker fisico
+    // quando il sensore rileva la chiusura dello sportello
+    // Il mock in openCell() aggiorna automaticamente lo stato dopo 5 secondi
+    // ========== FINE MOCK MODE ==========
+
     // Restituisci stato sportello
     res.json({
       success: true,
@@ -943,8 +971,8 @@ export async function getDoorStatus(req, res, next) {
         cellId,
         doorOpened: noleggio.cellaAperta || false,
         doorClosed: noleggio.cellaChiusa || false,
-        openedAt: noleggio.dataApertura || null,
-        closedAt: noleggio.dataChiusura || null,
+        openedAt: noleggio.dataApertura ? noleggio.dataApertura.toISOString() : null,
+        closedAt: noleggio.dataChiusura ? noleggio.dataChiusura.toISOString() : null,
         // Calcola tempo trascorso dall'apertura (in secondi)
         secondsSinceOpen: noleggio.dataApertura
           ? Math.floor((new Date() - noleggio.dataApertura) / 1000)

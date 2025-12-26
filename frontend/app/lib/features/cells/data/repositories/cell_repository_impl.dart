@@ -294,6 +294,7 @@ class CellRepositoryImpl implements CellRepository {
 
   @override
   Future<DoorStatus> getDoorStatus(String cellId) async {
+    debugPrint('➡️ [DOOR STATUS] Richiesta stato sportello per cella: $cellId');
     try {
       final endpoint = ApiConfig.doorStatusEndpoint.replaceAll(':cellId', cellId);
       final response = await _apiClient.get(
@@ -301,13 +302,26 @@ class CellRepositoryImpl implements CellRepository {
         requireAuth: true,
       );
 
+      debugPrint('⬅️ [DOOR STATUS] Risposta ricevuta: $response');
+
       if (response is! Map<String, dynamic>) {
         throw Exception('Formato risposta stato sportello non valido');
       }
 
-      return DoorStatus.fromJson(response);
+      // Il backend restituisce { success: true, data: { ... } }
+      // Estrai i dati da 'data' se presente
+      final data = response['data'] as Map<String, dynamic>? ?? response;
+      
+      final doorStatus = DoorStatus.fromJson(data);
+      debugPrint('✅ [DOOR STATUS] Parsing completato: doorOpened=${doorStatus.doorOpened}, doorClosed=${doorStatus.doorClosed}, secondsSinceOpen=${doorStatus.secondsSinceOpen}');
+      
+      return doorStatus;
     } on ApiException catch (e) {
+      debugPrint('❌ [DOOR STATUS] Errore API: ${e.message}');
       throw Exception('Errore nel controllo stato sportello: ${e.message}');
+    } catch (e) {
+      debugPrint('❌ [DOOR STATUS] Errore generico: $e');
+      throw Exception('Errore nel controllo stato sportello: ${e.toString()}');
     }
   }
 }

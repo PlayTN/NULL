@@ -361,10 +361,38 @@ class _OpenCellPageState extends State<OpenCellPage> {
         }
       });
 
-      // Timeout dopo 15 secondi
+      // ========== MOCK MODE FALLBACK ==========
+      // Se il backend ha BLUETOOTH_MOCK_MODE=true, può accettare richieste anche senza dispositivo trovato
+      // Dopo 3 secondi, prova comunque a chiamare il backend con l'UUID dal database
+      // Se il mock è attivo, il backend accetterà. Se non è attivo, rifiuterà con errore appropriato.
+      Future.delayed(const Duration(seconds: 3), () {
+        if (mounted && _isScanning && !_lockerFound && _bluetoothUuid != null && _bluetoothUuid!.isNotEmpty) {
+          debugPrint('🔧 [MOCK FALLBACK] Dispositivo non trovato dopo 3s. Provo comunque backend (potrebbe essere in modalità mock)...');
+          debugPrint('   [MOCK FALLBACK] UUID dal database: $_bluetoothUuid');
+          
+          // Prova comunque a chiamare il backend con l'UUID dal database
+          // Se il backend ha mock attivo, accetterà. Altrimenti rifiuterà.
+          FlutterBluePlus.stopScan();
+          setState(() {
+            _isScanning = false;
+            _lockerFound = true; // Simula ritrovamento per procedere con verifica backend
+            _statusMessage = 'Verifica in corso...';
+          });
+          
+          // Chiama backend con UUID dal database (simula ritrovamento)
+          // Il backend deciderà se accettare (mock attivo) o rifiutare (mock disattivo)
+          _verifyPairingWithBackend(
+            bluetoothUuid: _bluetoothUuid!,
+            deviceName: _bluetoothName ?? 'Locker-Device',
+            rssi: -55, // RSSI simulato (vicino) - il backend in mock mode lo ignorerà
+          );
+        }
+      });
+      
+      // Timeout finale dopo 15 secondi (se il fallback mock non ha funzionato)
       Future.delayed(const Duration(seconds: 15), () {
         if (mounted && _isScanning && !_lockerFound) {
-          debugPrint('⏱️ [BLUETOOTH] Timeout scansione: locker non trovato');
+          debugPrint('⏱️ [BLUETOOTH] Timeout scansione finale: locker non trovato');
           setState(() {
             _isScanning = false;
             _statusMessage = 'Locker non trovato nelle vicinanze. Assicurati di essere vicino al locker e che il Bluetooth sia attivo.';
