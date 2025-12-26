@@ -1223,11 +1223,13 @@ class _DepositOpenCellPageState extends State<DepositOpenCellPage> {
 /// Schermata di conferma chiusura sportello per deposito/ritiro/pickup
 class _DepositClosedConfirmationPage extends StatelessWidget {
   final ThemeManager themeManager;
+  final ActiveCell? activeCell; // Cella attiva (se disponibile)
   final String cellNumber;
   final String lockerName;
   final String cellSize;
   final bool isPickup;
   final bool isUnlock;
+  final Duration? depositDuration; // Durata del deposito
 
   const _DepositClosedConfirmationPage({
     required this.themeManager,

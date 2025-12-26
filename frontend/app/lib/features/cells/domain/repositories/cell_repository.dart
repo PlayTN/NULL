@@ -78,7 +78,9 @@ abstract class CellRepository {
   ///   "bluetoothUuid": "...",
   ///   "bluetoothRssi": -45 (opzionale),
   ///   "deviceName": "..." (opzionale),
-  ///   "geolocation": { "lat": ..., "lng": ... } (opzionale)
+  ///   "geolocation": { "lat": ..., "lng": ... } (opzionale),
+  ///   "type": "borrow" | "deposited" | "pickup" (opzionale),
+  ///   "duration": 24 (opzionale, durata in ore per deposito)
   /// }
   /// **Autenticazione**: Richiesta
   /// **Risposta**: { "verified": true, "pairingId": "...", "cellAssigned": { ... } }
@@ -89,6 +91,8 @@ abstract class CellRepository {
     int? bluetoothRssi,
     String? deviceName,
     Map<String, dynamic>? geolocation,
+    String? type, // Tipo: 'borrow', 'deposited', 'pickup'
+    int? duration, // Durata in ore (solo per deposito)
   });
   
   /// Apre una cella usando pairingId (modificato)

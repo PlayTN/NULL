@@ -558,19 +558,40 @@ export async function extendDeposit(req, res, next) {
 }
 
 /**
- * POST /api/v1/payments
- * Processa pagamento (mock)
+ * POST /api/v1/deposits/payments
+ * Processa pagamento per deposito (mock)
  * RF3: Processamento pagamento (mock)
- * NOTA: Nessuna transazione bancaria reale, nessun dato sensibile
+ * 
+ * **SICUREZZA - TUTTI I CONTROLLI CRITICI SONO LATO BACKEND:**
+ * - Verifica che locker e cella esistano
+ * - Verifica che cella sia di tipo "deposito"
+ * - Verifica che cella sia disponibile (stato "libera")
+ * - Calcola costo basato su tariffe e durata
+ * - Valida importo pagamento
+ * - Crea deposito solo dopo pagamento riuscito
+ * 
+ * **Body:**
+ * - `lockerId` (obbligatorio): ID del locker
+ * - `cellId` (obbligatorio): ID della cella
+ * - `duration` (obbligatorio): Durata in ore
+ * - `amount` (opzionale): Importo pagamento (se non specificato, calcolato dal backend)
+ * - `paymentMethod` (opzionale): Metodo pagamento (default: 'mock_card')
+ * - `depositId` (opzionale): ID deposito esistente (se pagamento per deposito già creato)
+ * 
+ * **NOTA:** Nessuna transazione bancaria reale, nessun dato sensibile
+ * In produzione, questo endpoint integrerà un gateway di pagamento reale (Stripe, PayPal, ecc.)
  */
 export async function processPayment(req, res, next) {
   try {
-    const { depositId, amount, paymentMethod = 'mock_card' } = req.body;
+    const {
+      depositId, // ID deposito esistente (opzionale)
+      lockerId, // ID locker (obbligatorio se depositId non presente)
+      cellId, // ID cella (obbligatorio se depositId non presente)
+      duration, // Durata in ore (obbligatorio se depositId non presente)
+      amount, // Importo pagamento (opzionale, calcolato se non specificato)
+      paymentMethod = 'mock_card', // Metodo pagamento (default: mock_card)
+    } = req.body;
     const userId = req.user.userId;
-
-    if (!depositId) {
-      throw new ValidationError('depositId è obbligatorio');
-    }
 
     // Valida paymentMethod
     const validMethods = ['mock_card', 'mock_wallet', 'mock_bank'];
@@ -580,59 +601,175 @@ export async function processPayment(req, res, next) {
       );
     }
 
-    // Trova noleggio
-    const noleggio = await Noleggio.findOne({ noleggioId: depositId });
+    let noleggio;
+    let paymentAmount;
 
-    if (!noleggio) {
-      throw new NotFoundError(`Deposito ${depositId} non trovato`);
+    // ========== CASO 1: Pagamento per deposito già esistente ==========
+    if (depositId) {
+      // Trova noleggio esistente
+      noleggio = await Noleggio.findOne({ noleggioId: depositId });
+
+      if (!noleggio) {
+        throw new NotFoundError(`Deposito ${depositId} non trovato`);
+      }
+
+      // Verifica proprietà
+      if (noleggio.utenteId.toString() !== userId) {
+        throw new UnauthorizedError('Non autorizzato a pagare questo deposito');
+      }
+
+      // Verifica tipo
+      if (noleggio.tipo !== 'deposito') {
+        throw new ValidationError('Questo noleggio non è un deposito');
+      }
+
+      // Verifica stato
+      if (noleggio.stato !== 'attivo' && noleggio.stato !== 'terminato') {
+        throw new ValidationError(`Deposito non può essere pagato (stato: ${noleggio.stato})`);
+      }
+
+      // Calcola amount se non specificato
+      paymentAmount = amount || calculatePaymentAmount(noleggio);
+
+      // Valida amount
+      const expectedAmount = calculatePaymentAmount(noleggio);
+      const validation = validatePaymentAmount(paymentAmount, expectedAmount);
+      if (!validation.valid) {
+        throw new ValidationError(validation.error);
+      }
+    } else {
+      // ========== CASO 2: Pagamento per nuovo deposito (crea deposito dopo pagamento) ==========
+      // Validazione input obbligatori
+      if (!lockerId) {
+        throw new ValidationError('lockerId è obbligatorio se depositId non è specificato');
+      }
+      if (!cellId) {
+        throw new ValidationError('cellId è obbligatorio se depositId non è specificato');
+      }
+      if (!duration || duration <= 0) {
+        throw new ValidationError('duration è obbligatorio e deve essere maggiore di 0');
+      }
+
+      // Verifica che locker esista
+      const locker = await Locker.findOne({ lockerId });
+      if (!locker) {
+        throw new NotFoundError(`Locker ${lockerId} non trovato`);
+      }
+
+      // Verifica che cella esista e sia disponibile
+      const cell = await Cell.findOne({
+        cellaId: cellId,
+        lockerId,
+        tipo: 'deposito',
+        stato: 'libera',
+      });
+
+      if (!cell) {
+        throw new NotFoundError(
+          `Cella ${cellId} non trovata o non disponibile per deposito nel locker ${lockerId}`
+        );
+      }
+
+      // Calcola costo basato su tariffe e durata
+      const tariffa = TARIFFE[cell.grandezza] || TARIFFE.media;
+      const durationHours = parseInt(duration, 10);
+
+      // Se la durata è >= 24 ore, usa tariffa giornaliera, altrimenti oraria
+      if (durationHours >= 24) {
+        const days = Math.ceil(durationHours / 24);
+        paymentAmount = tariffa.perGiorno * days;
+      } else {
+        paymentAmount = tariffa.perOra * durationHours;
+      }
+
+      // Se amount è specificato, valida che corrisponda al calcolo
+      if (amount && Math.abs(amount - paymentAmount) > 0.01) {
+        logger.warn(
+          `Importo pagamento (${amount}€) non corrisponde al calcolo (${paymentAmount}€). Usando importo specificato.`
+        );
+        paymentAmount = amount;
+      }
+
+      logger.info(
+        `Calcolo costo deposito: durata=${durationHours}h, grandezza=${cell.grandezza}, costo=${paymentAmount}€`
+      );
     }
 
-    // Verifica proprietà
-    if (noleggio.utenteId.toString() !== userId) {
-      throw new UnauthorizedError('Non autorizzato a pagare questo deposito');
-    }
-
-    // Verifica tipo
-    if (noleggio.tipo !== 'deposito') {
-      throw new ValidationError('Questo noleggio non è un deposito');
-    }
-
-    // Verifica stato
-    if (noleggio.stato !== 'attivo' && noleggio.stato !== 'terminato') {
-      throw new ValidationError(`Deposito non può essere pagato (stato: ${noleggio.stato})`);
-    }
-
-    // Calcola amount se non specificato
-    let paymentAmount = amount;
-    if (!paymentAmount) {
-      paymentAmount = calculatePaymentAmount(noleggio);
-    }
-
-    // Valida amount
-    const expectedAmount = calculatePaymentAmount(noleggio);
-    const validation = validatePaymentAmount(paymentAmount, expectedAmount);
-    if (!validation.valid) {
-      throw new ValidationError(validation.error);
-    }
-
-    // Processa pagamento mock
-    const paymentResult = await processMockPayment(paymentAmount, paymentMethod, depositId);
+    // ========== PROCESSA PAGAMENTO MOCK ==========
+    // ⚠️ SOLO PER TESTING/DEVELOPMENT: Simula pagamento
+    // IN PRODUZIONE: Integrare gateway di pagamento reale (Stripe, PayPal, ecc.)
+    const paymentIdForMock = depositId || `${lockerId}-${cellId}-${Date.now()}`;
+    const paymentResult = await processMockPayment(paymentAmount, paymentMethod, paymentIdForMock);
 
     logger.info(
-      `Pagamento processato: ${paymentResult.paymentId} per deposito ${depositId}, amount: ${paymentAmount}€`
+      `Pagamento mock processato: ${paymentResult.paymentId}, amount: ${paymentAmount}€, method: ${paymentMethod}`
     );
 
+    // ========== CREA DEPOSITO SE NON ESISTE ==========
+    if (!depositId) {
+      // Crea Noleggio (deposito) solo dopo pagamento riuscito
+      const now = new Date();
+      const dataInizio = now;
+      const oraInizio = formatTime(now);
+      const durationHours = parseInt(duration, 10);
+      const dataFine = new Date(now.getTime() + durationHours * 60 * 60 * 1000);
+
+      // Genera noleggioId
+      const noleggioId = await Noleggio.generateNoleggioId();
+
+      // Genera Bluetooth token
+      const bluetoothToken = Noleggio.generateBluetoothToken();
+
+      // Crea Noleggio
+      noleggio = new Noleggio({
+        noleggioId,
+        utenteId: userId,
+        cellaId: cellId,
+        lockerId,
+        tipo: 'deposito',
+        stato: 'attivo',
+        dataInizio,
+        oraInizio,
+        dataFine,
+        costo: paymentAmount,
+        bluetoothToken,
+      });
+
+      await noleggio.save();
+
+      // Aggiorna Cell stato a "occupata"
+      const cell = await Cell.findOne({ cellaId: cellId, lockerId });
+      if (cell) {
+        cell.stato = 'occupata';
+        await cell.save();
+      }
+
+      logger.info(
+        `Deposito creato dopo pagamento: ${noleggioId} - Utente: ${userId}, Cella: ${cellId}, Locker: ${lockerId}, Durata: ${durationHours}h, Costo: ${paymentAmount}€`
+      );
+    }
+
+    // ========== RISPOSTA ==========
     res.json({
       success: true,
       data: {
         payment: {
           paymentId: paymentResult.paymentId,
           transactionId: paymentResult.transactionId,
-          depositId,
+          depositId: noleggio.noleggioId,
           amount: paymentAmount,
           paymentMethod,
           status: paymentResult.status,
           timestamp: paymentResult.timestamp,
+        },
+        deposit: {
+          depositId: noleggio.noleggioId,
+          lockerId: noleggio.lockerId,
+          cellId: noleggio.cellaId,
+          duration: depositId ? null : parseInt(duration, 10), // Durata in ore (solo per nuovo deposito)
+          startTime: noleggio.dataInizio,
+          endTime: noleggio.dataFine,
+          cost: noleggio.costo,
         },
       },
     });

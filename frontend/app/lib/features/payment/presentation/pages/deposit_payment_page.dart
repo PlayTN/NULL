@@ -8,6 +8,10 @@ import 'package:app/core/styles/app_text_styles.dart';
 import 'package:app/features/lockers/domain/models/locker_cell.dart';
 import 'package:app/features/payment/presentation/pages/deposit_open_cell_page.dart';
 import 'package:app/core/notifications/notification_service.dart';
+import 'package:app/core/di/app_dependencies.dart';
+import 'package:app/core/config/api_config.dart';
+import 'package:app/core/api/api_exception.dart';
+import 'package:flutter/foundation.dart';
 
 /// Pagina di pagamento per affittare una cella di deposito
 /// 
@@ -73,11 +77,26 @@ class _DepositPaymentPageState extends State<DepositPaymentPage> {
     return Duration(hours: _selectedHours);
   }
 
-  /// Simula il pagamento
+  /// Processa il pagamento tramite API backend
   /// 
-  /// **TODO BACKEND**: Sostituire con chiamata API reale
-  /// POST /api/v1/payments
-  /// Body: { cellId, lockerId, amount, paymentMethod, duration }
+  /// **Endpoint backend**: POST /api/v1/deposits/payments
+  /// **Body**: {
+  ///   "lockerId": "...",
+  ///   "cellId": "...",
+  ///   "duration": 24 (ore),
+  ///   "amount": 10.0 (opzionale, calcolato dal backend se non specificato),
+  ///   "paymentMethod": "mock_card" (opzionale, default: "mock_card")
+  /// }
+  /// 
+  /// **SICUREZZA - TUTTI I CONTROLLI CRITICI SONO LATO BACKEND:**
+  /// - Verifica che locker e cella esistano
+  /// - Verifica che cella sia di tipo "deposito"
+  /// - Verifica che cella sia disponibile (stato "libera")
+  /// - Calcola costo basato su tariffe e durata
+  /// - Crea deposito solo dopo pagamento riuscito
+  /// 
+  /// **NOTA:** In produzione, questo endpoint integrerà un gateway di pagamento reale (Stripe, PayPal, ecc.)
+  /// Per ora, usa un mock che simula sempre un pagamento riuscito.
   Future<void> _processPayment() async {
     setState(() {
       _isProcessing = true;
@@ -86,34 +105,82 @@ class _DepositPaymentPageState extends State<DepositPaymentPage> {
       _paymentError = null;
     });
 
-    // ⚠️ SOLO PER TESTING: Simula pagamento con delay di 2 secondi
-    // IN PRODUZIONE: Chiamata API al backend per processare il pagamento
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final apiClient = AppDependencies.apiClient;
+      if (apiClient == null) {
+        throw Exception('Servizio API non disponibile');
+      }
 
-    // TODO BACKEND: Verificare risposta dal backend
-    // if (response.success) {
-    //   setState(() { _paymentSuccess = true; });
-    // } else {
-    //   setState() { _paymentFailed = true; _paymentError = response.error; });
-    // }
+      // Calcola durata in ore
+      final durationHours = _getSelectedDuration().inHours;
+      if (durationHours <= 0) {
+        throw Exception('Durata non valida');
+      }
 
-    // Simula successo (per testing)
-    setState(() {
-      _isProcessing = false;
-      _paymentSuccess = true;
-      // Inizializza i flag Bluetooth
-      _isVerifyingBluetooth = false;
-      _bluetoothCheckComplete = false;
-    });
+      // Calcola importo totale
+      final totalAmount = _calculateTotalPrice();
 
+      debugPrint('💳 [PAYMENT] Invio richiesta pagamento: lockerId=${widget.lockerId}, cellId=${widget.cell.id}, duration=${durationHours}h, amount=${totalAmount}€');
+
+      // Chiama API backend per processare il pagamento
+      // ⚠️ MOCK MODE: Il backend simula sempre un pagamento riuscito
+      // IN PRODUZIONE: Integrare gateway di pagamento reale (Stripe, PayPal, ecc.)
+      final response = await apiClient.post(
+        ApiConfig.depositPaymentEndpoint,
+        body: {
+          'lockerId': widget.lockerId,
+          'cellId': widget.cell.id,
+          'duration': durationHours,
+          'amount': totalAmount,
+          'paymentMethod': 'mock_card', // Mock payment method
+        },
+        requireAuth: true,
+      );
+
+      debugPrint('✅ [PAYMENT] Pagamento processato con successo: ${response['payment']?['paymentId']}');
+
+      // Verifica risposta
+      final payment = response['payment'] as Map<String, dynamic>?;
+      final deposit = response['deposit'] as Map<String, dynamic>?;
+
+      if (payment == null || deposit == null) {
+        throw Exception('Risposta API non valida');
+      }
+
+      // Pagamento riuscito!
+      setState(() {
+        _isProcessing = false;
+        _paymentSuccess = true;
+        _isVerifyingBluetooth = false;
+        _bluetoothCheckComplete = false;
+      });
+
+      debugPrint('✅ [PAYMENT] Deposito creato: ${deposit['depositId']}');
+    } on ApiException catch (e) {
+      debugPrint('❌ [PAYMENT] Errore API: ${e.message}');
+      setState(() {
+        _isProcessing = false;
+        _paymentFailed = true;
+        _paymentError = e.message;
+      });
+    } catch (e) {
+      debugPrint('❌ [PAYMENT] Errore imprevisto: $e');
+      setState(() {
+        _isProcessing = false;
+        _paymentFailed = true;
+        _paymentError = 'Errore durante il pagamento: ${e.toString()}';
+      });
+    }
 
     // Dopo il pagamento, verifica silenziosamente la connessione Bluetooth
     // Usa un piccolo delay per assicurarsi che lo stato sia aggiornato
-    Future.delayed(const Duration(milliseconds: 300), () {
-      if (mounted) {
-        _verifyBluetoothConnectionSilently();
-      }
-    });
+    if (_paymentSuccess) {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          _verifyBluetoothConnectionSilently();
+        }
+      });
+    }
   }
 
   @override

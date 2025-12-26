@@ -373,27 +373,15 @@ class _LockerDetailPageState extends State<LockerDetailPage> {
             child: const Text('Affitta'),
             onPressed: () {
               Navigator.of(context).pop();
-              // Naviga alla verifica Bluetooth (stessa schermata del prestito)
+              // Per deposito, naviga direttamente alla pagina di pagamento
+              // Il pagamento avviene PRIMA dell'apertura della cella
               Navigator.of(context).push(
                 CupertinoPageRoute(
-                  builder: (context) => OpenCellPage(
+                  builder: (context) => DepositPaymentPage(
                     themeManager: widget.themeManager,
                     cell: cell,
                     lockerName: widget.locker.name,
                     lockerId: widget.locker.id,
-                    // Callback chiamato dopo verifica Bluetooth per navigare al pagamento
-                    onVerificationComplete: () {
-                      Navigator.of(context).pushReplacement(
-                        CupertinoPageRoute(
-                          builder: (context) => DepositPaymentPage(
-                            themeManager: widget.themeManager,
-                            cell: cell,
-                            lockerName: widget.locker.name,
-                            lockerId: widget.locker.id,
-                          ),
-                        ),
-                      );
-                    },
                   ),
                 ),
               );

@@ -908,7 +908,7 @@ export async function verifyBluetoothPairing(req, res, next) {
     }
     // ========== FINE MOCK MODE ==========
 
-    // 5. Verifica che la cella esista e sia disponibile
+    // 5. Verifica che la cella esista
     const cell = await Cell.findOne({
       cellaId: cellId,
       lockerId: lockerId,
@@ -920,23 +920,48 @@ export async function verifyBluetoothPairing(req, res, next) {
       );
     }
 
-    if (cell.stato !== 'libera') {
-      throw new ValidationError(
-        `Cella ${cellId} non è disponibile (stato: ${cell.stato})`
-      );
-    }
-
-    // 6. Verifica tipo cella (deve essere "prestito" per borrow)
+    // Determina tipo dalla cella o dal body (priorità al body se presente)
     const tipoMapping = {
       borrow: 'prestito',
       deposited: 'deposito',
       pickup: 'ordini',
     };
-
-    // Determina tipo dalla cella o dal body (priorità al body se presente)
     const expectedType = req.body.type || 'borrow'; // Default borrow per prestito
     const tipoDB = tipoMapping[expectedType] || 'prestito';
 
+    // Verifica disponibilità cella
+    // Per deposito: la cella può essere già "occupata" se il deposito è stato creato durante il pagamento
+    // In questo caso, verifica che il deposito appartenga all'utente corrente
+    if (cell.stato !== 'libera') {
+      if (tipoDB === 'deposito') {
+        // Per deposito, verifica che esista un noleggio attivo dell'utente per questa cella
+        const existingNoleggio = await Noleggio.findOne({
+          cellaId: cellId,
+          lockerId: lockerId,
+          utenteId: userId,
+          tipo: 'deposito',
+          stato: 'attivo',
+        });
+
+        if (!existingNoleggio) {
+          throw new ValidationError(
+            `Cella ${cellId} non è disponibile. Non hai un deposito attivo per questa cella.`
+          );
+        }
+
+        // Cella già assegnata all'utente, procedi con la verifica
+        logger.info(
+          `Cella ${cellId} già occupata da deposito ${existingNoleggio.noleggioId} dell'utente ${userId}. Procedo con verifica Bluetooth.`
+        );
+      } else {
+        // Per prestito/pickup, la cella deve essere libera
+        throw new ValidationError(
+          `Cella ${cellId} non è disponibile (stato: ${cell.stato})`
+        );
+      }
+    }
+
+    // 6. Verifica tipo cella
     if (cell.tipo !== tipoDB) {
       throw new ValidationError(
         `Cella ${cellId} non è di tipo ${tipoDB} (tipo attuale: ${cell.tipo})`
@@ -989,29 +1014,67 @@ export async function verifyBluetoothPairing(req, res, next) {
       );
     }
 
-    // Genera noleggioId
-    const noleggioId = await Noleggio.generateNoleggioId();
+    // Per deposito, verifica se esiste già un noleggio creato durante il pagamento
+    let noleggio;
+    if (tipoDB === 'deposito') {
+      const existingNoleggio = await Noleggio.findOne({
+        cellaId: cellId,
+        lockerId: lockerId,
+        utenteId: userId,
+        tipo: 'deposito',
+        stato: 'attivo',
+      });
 
-    // Genera Bluetooth token (QR code non più utilizzato)
-    const bluetoothToken = Noleggio.generateBluetoothToken();
+      if (existingNoleggio) {
+        // Usa il noleggio esistente (creato durante il pagamento)
+        noleggio = existingNoleggio;
+        logger.info(
+          `Usando deposito esistente ${existingNoleggio.noleggioId} per verifica Bluetooth`
+        );
+      } else {
+        // Crea nuovo Noleggio (per prestito/pickup o deposito senza pagamento)
+        const noleggioId = await Noleggio.generateNoleggioId();
+        const bluetoothToken = Noleggio.generateBluetoothToken();
 
-    // Crea Noleggio
-    const noleggio = new Noleggio({
-      noleggioId,
-      utenteId: userId,
-      cellaId: cellId,
-      lockerId,
-      tipo: tipoDB,
-      stato: 'attivo',
-      dataInizio,
-      oraInizio,
-      dataFine, // Scadenza per deposito (null per prestito/pickup)
-      costo, // Costo calcolato per deposito, 0 per prestito
-      bluetoothToken,
-      geolocalizzazione: geolocation || null,
-    });
+        noleggio = new Noleggio({
+          noleggioId,
+          utenteId: userId,
+          cellaId: cellId,
+          lockerId,
+          tipo: tipoDB,
+          stato: 'attivo',
+          dataInizio,
+          oraInizio,
+          dataFine, // Scadenza per deposito (null per prestito/pickup)
+          costo, // Costo calcolato per deposito, 0 per prestito
+          bluetoothToken,
+          geolocalizzazione: geolocation || null,
+        });
 
-    await noleggio.save();
+        await noleggio.save();
+      }
+    } else {
+      // Per prestito/pickup, crea sempre nuovo Noleggio
+      const noleggioId = await Noleggio.generateNoleggioId();
+      const bluetoothToken = Noleggio.generateBluetoothToken();
+
+      noleggio = new Noleggio({
+        noleggioId,
+        utenteId: userId,
+        cellaId: cellId,
+        lockerId,
+        tipo: tipoDB,
+        stato: 'attivo',
+        dataInizio,
+        oraInizio,
+        dataFine: null, // Prestito/pickup non ha scadenza
+        costo: 0, // Prestito è gratuito
+        bluetoothToken,
+        geolocalizzazione: geolocation || null,
+      });
+
+      await noleggio.save();
+    }
 
     // 9. Formatta come ActiveCell per frontend
     const activeCell = await formatNoleggioAsActiveCell(noleggio);

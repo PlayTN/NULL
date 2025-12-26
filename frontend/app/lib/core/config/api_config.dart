@@ -55,6 +55,9 @@ class ApiConfig {
   
   /// Endpoint per verificare stato apertura/chiusura sportello
   static const String doorStatusEndpoint = '/cells/:cellId/door-status';
+  
+  /// Endpoint per processare pagamento deposito
+  static const String depositPaymentEndpoint = '/deposits/payments';
 }
 
 

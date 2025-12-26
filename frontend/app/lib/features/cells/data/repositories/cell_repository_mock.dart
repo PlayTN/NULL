@@ -145,6 +145,7 @@ class CellRepositoryMock implements CellRepository {
   Future<ActiveCell> requestCell(
     String lockerId, {
     required String type,
+    int? duration, // Durata in ore (solo per deposito)
     String? photoBase64,
     Map<String, dynamic>? geolocation,
   }) async {
@@ -218,6 +219,8 @@ class CellRepositoryMock implements CellRepository {
     int? bluetoothRssi,
     String? deviceName,
     Map<String, dynamic>? geolocation,
+    String? type, // Tipo: 'borrow', 'deposited', 'pickup'
+    int? duration, // Durata in ore (solo per deposito)
   }) async {
     await Future.delayed(_apiDelay);
     
