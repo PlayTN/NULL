@@ -27,6 +27,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.2",
     "qrcode": "^1.5.4",
+    "swagger-ui-express": "^5.0.1",
+    "js-yaml": "^4.1.0",
     "winston": "^3.17.0"
   },
   "engines": {
@@ -34,5 +36,10 @@
     "npm": ">=9.0.0"
   }
 }
+
+
+
+
+
 
 

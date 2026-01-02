@@ -1,0 +1,806 @@
+openapi: 3.0.0
+info:
+  version: '1.0.0'
+  title: 'NULL Backend OpenAPI 3.0'
+  description: API for managing smart lockers, deposits, borrows, donations and reports
+  license:
+    name: MIT
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Localhost
+  - url: https://api.null.app/api/v1
+    description: Production
+
+paths:
+  /health:
+    get:
+      description: >
+        Health check endpoint per verificare lo stato dell'API e del database.
+      summary: Check API health status
+      responses:
+        '200':
+          description: 'API is healthy'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  status:
+                    type: string
+                  timestamp:
+                    type: string
+                  database:
+                    type: string
+                  version:
+                    type: string
+                  environment:
+                    type: string
+
+  /auth/login:
+    post:
+      description: >
+        Creates a new user in the system or logs in existing user.
+        Mock SPID/CIE authentication - creates user automatically if not exists.
+      summary: Register/Login a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - codiceFiscale
+                - tipoAutenticazione
+              properties:
+                codiceFiscale:
+                  type: string
+                  description: 'Codice fiscale of the user (16 characters)'
+                  minLength: 16
+                  maxLength: 16
+                  pattern: '^[A-Z0-9]{16}$'
+                tipoAutenticazione:
+                  type: string
+                  enum: [spid, cie]
+                  description: 'Tipo autenticazione utilizzata'
+                nome:
+                  type: string
+                  description: 'Nome utente (opzionale per nuovi utenti)'
+                cognome:
+                  type: string
+                  description: 'Cognome utente (opzionale per nuovi utenti)'
+      responses:
+        '201':
+          description: 'User created/logged in. Tokens in response body'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  user:
+                    $ref: '#/components/schemas/User'
+                  tokens:
+                    type: object
+                    properties:
+                      accessToken:
+                        type: string
+                      refreshToken:
+                        type: string
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /auth/refresh:
+    post:
+      description: >
+        Refresh access token using refresh token.
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  description: 'Refresh token'
+      responses:
+        '200':
+          description: 'Token refreshed'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+        '401':
+          description: 'Invalid refresh token'
+
+  /auth/me:
+    get:
+      description: >
+        Gets the current authenticated user information.
+      summary: View current user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'Current user information'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: 'Unauthorized'
+
+  /lockers:
+    get:
+      description: >
+        Gets the list of lockers.
+        It is possible to filter lockers by type /lockers?type={type}
+        It is possible to filter by distance /lockers?lat={lat}&lng={lng}&radius={radius}
+      summary: View all lockers
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [sportivi, personali, petFriendly, commerciali, cicloturistici]
+          description: 'Filter by locker type'
+        - in: query
+          name: lat
+          schema:
+            type: number
+          description: 'Latitude for distance search'
+        - in: query
+          name: lng
+          schema:
+            type: number
+          description: 'Longitude for distance search'
+        - in: query
+          name: radius
+          schema:
+            type: number
+          description: 'Search radius in meters'
+        - in: query
+          name: available
+          schema:
+            type: boolean
+          description: 'Only lockers with available cells'
+        - in: query
+          name: online
+          schema:
+            type: boolean
+          description: 'Only online lockers'
+      responses:
+        '200':
+          description: 'Collection of lockers'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Locker'
+
+  /lockers/{id}:
+    get:
+      description: >
+        Gets a specific locker by ID.
+      summary: View locker by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: 'Locker ID'
+      responses:
+        '200':
+          description: 'Locker details'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Locker'
+        '404':
+          description: 'Locker not found'
+
+  /lockers/{id}/cells:
+    get:
+      description: >
+        Gets the list of cells for a specific locker.
+        It is possible to filter cells by type /lockers/{id}/cells?type={type}
+      summary: View locker cells
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [deposit, borrow, pickup]
+      responses:
+        '200':
+          description: 'Collection of cells'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Cell'
+
+  /cells/request:
+    post:
+      description: >
+        Creates a new cell request for deposit/borrow/pickup.
+      summary: Request a cell
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - lockerId
+                - tipo
+              properties:
+                lockerId:
+                  type: string
+                  description: 'Locker ID'
+                cellaId:
+                  type: string
+                  description: 'Specific cell ID (optional)'
+                tipo:
+                  type: string
+                  enum: [deposito, prestito, ordini]
+                  description: 'Type of rental'
+      responses:
+        '201':
+          description: 'Cell assigned. Link in the Location header'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Link to the newly created rental.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Noleggio'
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /cells/open:
+    post:
+      description: >
+        Opens a cell using QR code or Bluetooth token.
+      summary: Open cell
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - noleggioId
+              properties:
+                noleggioId:
+                  type: string
+                qrCode:
+                  type: string
+                  description: 'QR code data'
+                bluetoothToken:
+                  type: string
+                  description: 'Bluetooth token'
+                geolocalizzazione:
+                  type: object
+                  properties:
+                    lat:
+                      type: number
+                    lng:
+                      type: number
+      responses:
+        '200':
+          description: 'Cell opened successfully'
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /deposits:
+    post:
+      description: >
+        Creates a new deposit.
+      summary: Create deposit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - lockerId
+              properties:
+                lockerId:
+                  type: string
+                cellaId:
+                  type: string
+                  description: 'Specific cell ID (optional)'
+                duration:
+                  type: number
+                  description: 'Duration in hours'
+                photo:
+                  type: string
+                  description: 'Photo base64 (optional)'
+      responses:
+        '201':
+          description: 'Deposit created. Link in the Location header'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Link to the newly created deposit.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Noleggio'
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /deposits/active:
+    get:
+      description: >
+        Gets the list of active deposits for the current user.
+      summary: View active deposits
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'Collection of active deposits'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Noleggio'
+        '401':
+          description: 'Unauthorized'
+
+  /donations:
+    get:
+      description: >
+        Gets the list of available donations.
+      summary: View all donations
+      responses:
+        '200':
+          description: 'Collection of donations'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Donazione'
+
+  /donations:
+    post:
+      description: >
+        Creates a new donation.
+      summary: Create donation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Donazione'
+      responses:
+        '201':
+          description: 'Donation created. Link in the Location header'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Link to the newly created donation.
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /reports:
+    post:
+      description: >
+        Creates a new report/segnalazione.
+      summary: Create report
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - lockerId
+                - tipo
+                - descrizione
+              properties:
+                lockerId:
+                  type: string
+                cellaId:
+                  type: string
+                  description: 'Cell ID (optional)'
+                tipo:
+                  type: string
+                  enum: [guasto, pulizia, altro]
+                descrizione:
+                  type: string
+                fotoUrl:
+                  type: string
+                  description: 'Photo URL (optional)'
+      responses:
+        '201':
+          description: 'Report created. Link in the Location header'
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Link to the newly created report.
+        '400':
+          description: 'Validation error'
+        '401':
+          description: 'Unauthorized'
+
+  /notifications:
+    get:
+      description: >
+        Gets the list of notifications for the current user.
+      summary: View notifications
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'Collection of notifications'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notifica'
+        '401':
+          description: 'Unauthorized'
+
+  /profile/history:
+    get:
+      description: >
+        Gets the complete usage history for the current user.
+        It is possible to paginate results /profile/history?page={page}&limit={limit}
+      summary: View user history
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: 'Page number'
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+          description: 'Items per page'
+      responses:
+        '200':
+          description: 'User history'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Noleggio'
+        '401':
+          description: 'Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - utenteId
+        - nome
+        - cognome
+        - codiceFiscale
+      properties:
+        id:
+          type: string
+          description: 'MongoDB ObjectId'
+        utenteId:
+          type: string
+          description: 'ID of the user (e.g. USR-001)'
+        nome:
+          type: string
+          description: 'Nome of the user'
+        cognome:
+          type: string
+          description: 'Cognome of the user'
+        codiceFiscale:
+          type: string
+          description: 'Codice fiscale of the user (16 characters)'
+        email:
+          type: string
+          description: 'Email address of the user'
+        telefono:
+          type: string
+          description: 'Phone number of the user'
+        tipoAutenticazione:
+          type: string
+          enum: [spid, cie]
+          description: 'Tipo autenticazione utilizzata'
+        ruolo:
+          type: string
+          enum: [utente, operatore, admin]
+          description: 'Role of the user'
+        attivo:
+          type: boolean
+          description: 'Tells whether the user account is active or not'
+        dataRegistrazione:
+          type: string
+          format: date-time
+          description: 'Registration date'
+
+    Locker:
+      type: object
+      required:
+        - lockerId
+        - nome
+        - coordinate
+        - stato
+      properties:
+        lockerId:
+          type: string
+          description: 'ID of the locker (e.g. LCK-001)'
+        nome:
+          type: string
+          description: 'Nome of the locker'
+        coordinate:
+          type: object
+          properties:
+            lat:
+              type: number
+              description: 'Latitude'
+            lng:
+              type: number
+              description: 'Longitude'
+        stato:
+          type: string
+          enum: [attivo, manutenzione, disattivo]
+          description: 'Tells whether the locker is currently active, in maintenance or disabled'
+        dimensione:
+          type: string
+          enum: [small, medium, large]
+          description: 'Size of the locker'
+        tipo:
+          type: string
+          enum: [sportivi, personali, petFriendly, commerciali, cicloturistici]
+          description: 'Type/category of the locker'
+        descrizione:
+          type: string
+          description: 'Description of the locker'
+        online:
+          type: boolean
+          description: 'Tells whether the locker is online or offline'
+        inManutenzione:
+          type: boolean
+          description: 'Tells whether the locker is in maintenance'
+
+    Cell:
+      type: object
+      required:
+        - cellaId
+        - lockerId
+        - stato
+      properties:
+        cellaId:
+          type: string
+          description: 'ID of the cell (e.g. CEL-LCK-001-1)'
+        lockerId:
+          type: string
+          description: 'Link to the locker'
+        stato:
+          type: string
+          enum: [libera, occupata, manutenzione]
+          description: 'Tells whether the cell is currently available, occupied or in maintenance'
+        grandezza:
+          type: string
+          enum: [piccola, media, grande, extra_large]
+          description: 'Size of the cell'
+        tipo:
+          type: string
+          enum: [ordini, deposito, prestito, commerciale, pickup]
+          description: 'Type of the cell'
+        costo:
+          type: number
+          description: 'Cost of using the cell'
+        disponibile:
+          type: boolean
+          description: 'Tells whether the cell is available'
+
+    Noleggio:
+      type: object
+      required:
+        - noleggioId
+        - utenteId
+        - cellaId
+        - lockerId
+        - tipo
+        - stato
+      properties:
+        noleggioId:
+          type: string
+          description: 'ID of the rental (e.g. NOL-001)'
+        utenteId:
+          type: string
+          description: 'Link to the user'
+        cellaId:
+          type: string
+          description: 'Link to the cell'
+        lockerId:
+          type: string
+          description: 'Link to the locker'
+        tipo:
+          type: string
+          enum: [deposito, prestito, ordini]
+          description: 'Type of rental'
+        stato:
+          type: string
+          enum: [attivo, terminato, annullato]
+          description: 'Tells whether the rental is currently active, terminated or cancelled'
+        dataInizio:
+          type: string
+          format: date-time
+          description: 'Start date of the rental'
+        dataFine:
+          type: string
+          format: date-time
+          description: 'End date of the rental'
+        costo:
+          type: number
+          description: 'Cost of the rental'
+        qrCode:
+          type: string
+          description: 'QR code for cell opening'
+        bluetoothToken:
+          type: string
+          description: 'Bluetooth token for cell opening'
+
+    Donazione:
+      type: object
+      required:
+        - donazioneId
+        - utenteId
+        - lockerId
+        - titolo
+        - descrizione
+        - stato
+      properties:
+        donazioneId:
+          type: string
+          description: 'ID of the donation'
+        utenteId:
+          type: string
+          description: 'Link to the user'
+        lockerId:
+          type: string
+          description: 'Link to the locker'
+        titolo:
+          type: string
+          description: 'Title of the donation'
+        descrizione:
+          type: string
+          description: 'Description of the donated item'
+        categoria:
+          type: string
+          description: 'Category of the donation'
+        fotoUrl:
+          type: string
+          description: 'Photo URL of the donated item'
+        stato:
+          type: string
+          enum: [in_attesa, approvata, rifiutata, ritirata]
+          description: 'Tells whether the donation is pending, approved, rejected or withdrawn'
+        dataCreazione:
+          type: string
+          format: date-time
+          description: 'Creation date'
+
+    Notifica:
+      type: object
+      required:
+        - notificaId
+        - utenteId
+        - tipo
+        - titolo
+        - messaggio
+      properties:
+        notificaId:
+          type: string
+          description: 'ID of the notification'
+        utenteId:
+          type: string
+          description: 'Link to the user'
+        tipo:
+          type: string
+          enum: [deposito, prelievo, scadenza, sistema]
+          description: 'Type of notification'
+        titolo:
+          type: string
+          description: 'Title of the notification'
+        messaggio:
+          type: string
+          description: 'Message of the notification'
+        letta:
+          type: boolean
+          description: 'Tells whether the notification has been read'
+        dataCreazione:
+          type: string
+          format: date-time
+          description: 'Creation date'
+

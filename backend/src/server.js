@@ -5,6 +5,9 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import fs from 'fs';
+import swaggerUi from 'swagger-ui-express';
+import yaml from 'js-yaml';
 import config from './config/env.js';
 import { connectDB, disconnectDB } from './config/database.js';
 import { loadTLSOptions } from './config/tls.js';
@@ -55,6 +58,22 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve uploaded files (foto) - implementazione reale
 app.use('/uploads', express.static(join(__dirname, '../uploads')));
+
+// Swagger UI - API Documentation
+try {
+  const swaggerFilePath = join(__dirname, '../../oas3.yaml');
+  const swaggerFile = fs.readFileSync(swaggerFilePath, 'utf8');
+  const swaggerDocument = yaml.load(swaggerFile);
+  
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'NULL API Documentation',
+  }));
+  
+  logger.info('Swagger UI available at /api-docs');
+} catch (error) {
+  logger.warn('Swagger UI not available:', error.message);
+}
 
 // Request logging middleware
 app.use((req, res, next) => {
